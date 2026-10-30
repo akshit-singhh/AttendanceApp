@@ -302,8 +302,6 @@ fun TeacherClassesScreen(
                             )
                         }
                     }
-
-                    item { FastCorrectionBanner() }
                 } else {
                     item { PendingPolicyCard() }
 
@@ -911,38 +909,6 @@ private fun StatusBadge(text: String, bgColor: Color, textColor: Color, icon: Im
                 maxLines = 1,
                 softWrap = false
             )
-        }
-    }
-}
-
-@Composable
-private fun FastCorrectionBanner() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = PrimaryBlue),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier.size(48.dp).clip(CircleShape).background(Color.White),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = PrimaryBlue, modifier = Modifier.size(24.dp))
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
-                    Text("Need to make a fast correction?", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("Modify past records within 24 hours", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f))
-                }
-            }
-            Button(
-                onClick = { /* Jump to Correction Tab */ },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text("Quick Log", color = PrimaryBlue, fontWeight = FontWeight.Bold)
-            }
         }
     }
 }
