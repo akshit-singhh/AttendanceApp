@@ -3,6 +3,8 @@ package com.akshit.attendance.ui.student
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +27,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshit.attendance.data.model.SubjectAttendanceHistory
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.akshit.attendance.ui.components.PullToRefreshExpressiveIndicator
 import com.akshit.attendance.ui.components.SubjectCardSkeleton
 import java.util.Locale
 
@@ -36,6 +42,19 @@ fun StudentSubjectsScreen(
 ) {
     val dashboardState by viewModel.dashboard.collectAsState()
     var filterMode by remember { mutableStateOf("ALL") } // ALL, ATTENTION, ON_TRACK
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val pullToRefreshState = rememberPullToRefreshState()
+    if (pullToRefreshState.isRefreshing) {
+        LaunchedEffect(true) {
+            viewModel.refreshAll()
+        }
+    }
+    LaunchedEffect(isRefreshing) {
+        if (!isRefreshing) {
+            pullToRefreshState.endRefresh()
+        }
+    }
+    val showSkeleton = isRefreshing || pullToRefreshState.isRefreshing || dashboardState is DashboardUiState.Loading
 
     Scaffold(
         containerColor = SurfaceBg,
@@ -49,7 +68,7 @@ fun StudentSubjectsScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.loadDashboard() }) {
+                    IconButton(onClick = { viewModel.refreshAll() }) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "Refresh", tint = TextDark)
                     }
                 },
@@ -57,10 +76,27 @@ fun StudentSubjectsScreen(
             )
         }
     ) { padding ->
-        when (val state = dashboardState) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .nestedScroll(pullToRefreshState.nestedScrollConnection)
+        ) {
+            if (showSkeleton) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    items(5) {
+                        SubjectCardSkeleton()
+                    }
+                }
+            } else {
+                when (val state = dashboardState) {
             is DashboardUiState.Loading -> {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(padding),
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
@@ -70,36 +106,36 @@ fun StudentSubjectsScreen(
                 }
             }
             is DashboardUiState.Error -> {
-                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(state.message, color = AlertRed, fontSize = 14.sp)
                 }
             }
             is DashboardUiState.Loaded -> {
                 val allSubjects = state.data.subjects
-                val needsAttentionCount = allSubjects.count { it.percentage < 75.0 }
-                val onTrackCount = allSubjects.count { it.percentage >= 75.0 }
+                val needsAttentionCount = allSubjects.count { it.periods_held > 0 && it.percentage < 75.0 }
+                val onTrackCount = allSubjects.count { it.periods_held > 0 && it.percentage >= 75.0 }
 
                 val displayedSubjects = when (filterMode) {
-                    "ATTENTION" -> allSubjects.filter { it.percentage < 75.0 }
-                    "ON_TRACK" -> allSubjects.filter { it.percentage >= 75.0 }
+                    "ATTENTION" -> allSubjects.filter { it.periods_held > 0 && it.percentage < 75.0 }
+                    "ON_TRACK" -> allSubjects.filter { it.periods_held > 0 && it.percentage >= 75.0 }
                     else -> allSubjects
                 }
 
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(padding),
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // Filter Chips Row
                     item {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             FilterChip(
                                 selected = filterMode == "ALL",
                                 onClick = { filterMode = "ALL" },
-                                label = { Text("All • ${allSubjects.size}", fontWeight = FontWeight.Bold) },
+                                label = { Text("All • ${allSubjects.size}", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = PrimaryBlue,
                                     selectedLabelColor = Color.White
@@ -108,7 +144,7 @@ fun StudentSubjectsScreen(
                             FilterChip(
                                 selected = filterMode == "ATTENTION",
                                 onClick = { filterMode = "ATTENTION" },
-                                label = { Text("Needs attention • $needsAttentionCount", fontWeight = FontWeight.Bold) },
+                                label = { Text("Needs attention • $needsAttentionCount", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = AlertRed,
                                     selectedLabelColor = Color.White
@@ -117,7 +153,7 @@ fun StudentSubjectsScreen(
                             FilterChip(
                                 selected = filterMode == "ON_TRACK",
                                 onClick = { filterMode = "ON_TRACK" },
-                                label = { Text("On track • $onTrackCount", fontWeight = FontWeight.Bold) },
+                                label = { Text("On track • $onTrackCount", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = PrimaryGreen,
                                     selectedLabelColor = Color.White
@@ -157,6 +193,20 @@ fun StudentSubjectsScreen(
                     }
                 }
             }
+        }
+            }
+            PullToRefreshContainer(
+                state = pullToRefreshState,
+                modifier = Modifier.align(Alignment.TopCenter),
+                containerColor = Color.White,
+                contentColor = PrimaryBlue,
+                indicator = { state ->
+                    PullToRefreshExpressiveIndicator(
+                        state = state,
+                        color = PrimaryBlue,
+                    )
+                }
+            )
         }
     }
 }
@@ -359,7 +409,8 @@ fun SubjectCardItem(
                         }
                     }
                 }
-            }
         }
     }
+}
+
 }

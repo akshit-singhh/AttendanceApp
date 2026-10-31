@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.akshit.attendance.data.model.*
 import com.akshit.attendance.data.repository.StudentRepository
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -102,7 +103,10 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
     fun refreshAll() {
         viewModelScope.launch {
             _isRefreshing.value = true
+            _dashboard.value = DashboardUiState.Loading
+            _timetable.value = StudentTimetableUiState.Loading
             try {
+                val minDelayDeferred = async { delay(600L) }
                 val profileDeferred = async { try { repo.getProfile() } catch (e: Exception) { null } }
                 val dashboardDeferred = async { try { repo.getDashboard(null) } catch (e: Exception) { null } }
                 val scheduleDeferred = async { try { repo.getSchedule() } catch (e: Exception) { null } }
@@ -111,10 +115,11 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
                 val historyDeferred = async { try { repo.getHistory() } catch (e: Exception) { null } }
 
                 profileDeferred.await()?.let { _profile.value = it }
-                dashboardDeferred.await()?.let { data ->
-                    _dashboard.value = DashboardUiState.Loaded(data)
-                    if (_plannerItems.value.isEmpty() && data.subjects.isNotEmpty()) {
-                        _plannerItems.value = data.subjects.map {
+                val newDash = dashboardDeferred.await()
+                if (newDash != null) {
+                    _dashboard.value = DashboardUiState.Loaded(newDash)
+                    if (_plannerItems.value.isEmpty() && newDash.subjects.isNotEmpty()) {
+                        _plannerItems.value = newDash.subjects.map {
                             PlannerSubjectItem(
                                 code = it.course_code,
                                 name = it.subject_name,
@@ -125,7 +130,10 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
                             )
                         }
                     }
+                } else if (_dashboard.value is DashboardUiState.Loading) {
+                    _dashboard.value = DashboardUiState.Error("Unable to refresh dashboard data.")
                 }
+
                 scheduleDeferred.await()?.let { raw ->
                     _schedule.value = raw.sortedWith(compareBy({ slot ->
                         when (slot.day_of_week.uppercase()) {
@@ -139,9 +147,21 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
                         }
                     }, { parseTimeToMinutes(it.start_time) }))
                 }
-                timetableDeferred.await()?.let { _timetable.value = StudentTimetableUiState.Loaded(it) }
+
+                val newTimetable = timetableDeferred.await()
+                if (newTimetable != null) {
+                    _timetable.value = StudentTimetableUiState.Loaded(newTimetable)
+                } else if (_timetable.value is StudentTimetableUiState.Loading) {
+                    _timetable.value = StudentTimetableUiState.Error("Unable to refresh timetable data.")
+                }
+
                 calendarDeferred.await()?.let { _calendarState.value = CalendarUiState.Loaded(it) }
                 historyDeferred.await()?.let { _history.value = it }
+                minDelayDeferred.await()
+            } catch (e: Exception) {
+                if (_dashboard.value is DashboardUiState.Loading) {
+                    _dashboard.value = DashboardUiState.Error(e.message ?: "Failed to refresh.")
+                }
             } finally {
                 _isRefreshing.value = false
             }

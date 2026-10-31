@@ -538,6 +538,8 @@ fun StudentDashboardContent(
 
         }
 
+        val showSkeleton = isRefreshing || pullToRefreshState.isRefreshing || dashboardState is DashboardUiState.Loading
+
 
 
         Box(
@@ -566,51 +568,59 @@ fun StudentDashboardContent(
 
                 item {
 
-                    when (val state = dashboardState) {
+                    if (showSkeleton) {
 
-                        is DashboardUiState.Loading -> {
+                        DashboardHeroSkeleton()
 
-                            DashboardHeroSkeleton()
+                    } else {
 
-                        }
+                        when (val state = dashboardState) {
 
-                        is DashboardUiState.Error -> {
+                            is DashboardUiState.Loading -> {
 
-                            Surface(
+                                DashboardHeroSkeleton()
 
-                                color = LightRedBg,
+                            }
 
-                                shape = RoundedCornerShape(12.dp),
+                            is DashboardUiState.Error -> {
 
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                Surface(
 
-                            ) {
+                                    color = LightRedBg,
 
-                                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    shape = RoundedCornerShape(12.dp),
 
-                                    Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = AlertRed)
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
 
-                                    Spacer(Modifier.width(10.dp))
+                                ) {
 
-                                    Text(state.message, color = AlertRed, fontSize = 13.sp)
+                                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+
+                                        Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = AlertRed)
+
+                                        Spacer(Modifier.width(10.dp))
+
+                                        Text(state.message, color = AlertRed, fontSize = 13.sp)
+
+                                    }
 
                                 }
 
                             }
 
-                        }
+                            is DashboardUiState.Loaded -> {
 
-                        is DashboardUiState.Loaded -> {
+                                LiveOverallAttendanceCard(
 
-                            LiveOverallAttendanceCard(
+                                    data = state.data,
 
-                                data = state.data,
+                                    getBunkAdvice = getBunkAdvice,
 
-                                getBunkAdvice = getBunkAdvice,
+                                    onViewSubjects = onNavigateToSubjects
 
-                                onViewSubjects = onNavigateToSubjects
+                                )
 
-                            )
+                            }
 
                         }
 
@@ -680,21 +690,17 @@ fun StudentDashboardContent(
 
 
 
-                when (dashboardState) {
+                if (showSkeleton) {
 
-                    is DashboardUiState.Loading -> {
+                    items(3) {
 
-                        items(3) {
-
-                            ScheduleCardSkeleton()
-
-                        }
+                        ScheduleCardSkeleton()
 
                     }
 
-                    else -> {
+                } else {
 
-                        if (todaySlots.isEmpty()) {
+                    if (todaySlots.isEmpty()) {
 
                             item {
 
@@ -792,75 +798,10 @@ fun StudentDashboardContent(
 
                     }
 
-                }
 
 
 
-                // 5. Leave Regularization Banner
-
-                item {
-
-                    Surface(
-
-                        color = Color.White,
-
-                        shape = RoundedCornerShape(16.dp),
-
-                        border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder),
-
-                        modifier = Modifier.fillMaxWidth()
-
-                    ) {
-
-                        Row(
-
-                            modifier = Modifier.padding(16.dp),
-
-                            verticalAlignment = Alignment.CenterVertically
-
-                        ) {
-
-                            Box(
-
-                                modifier = Modifier.size(44.dp).background(Color(0xFFEEF2FF), CircleShape),
-
-                                contentAlignment = Alignment.Center
-
-                            ) {
-
-                                Icon(Icons.Outlined.CalendarMonth, contentDescription = null, tint = AccentPurple)
-
-                            }
-
-                            Spacer(Modifier.width(14.dp))
-
-                            Column(Modifier.weight(1f)) {
-
-                                Text("Weekly Timetable Matrix", fontWeight = FontWeight.Bold, color = TextDark, fontSize = 14.sp)
-
-                                Text("Check all weekly class slots, timings & venues.", fontSize = 12.sp, color = TextGray)
-
-                            }
-
-                            Button(
-
-                                onClick = onNavigateToTimetable,
-
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
-
-                                shape = RoundedCornerShape(10.dp)
-
-                            ) {
-
-                                Text("Open", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-
-                            }
-
-                        }
-
-                    }
-
-                }
+                // 5. Weekly Timetable Matrix Card removed as requested
 
             }
 

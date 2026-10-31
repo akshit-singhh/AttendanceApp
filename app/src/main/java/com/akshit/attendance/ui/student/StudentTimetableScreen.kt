@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshit.attendance.data.model.TeacherTimetableResponse
+import com.akshit.attendance.data.model.UserProfileResponse
 import com.akshit.attendance.data.model.TeachingWorkloadItem
 import com.akshit.attendance.data.model.TimetableSlotItem
 import com.akshit.attendance.ui.components.AppTopBar
@@ -59,14 +60,32 @@ fun StudentTimetableScreen(
 ) {
     val state by viewModel.timetable.collectAsState()
 
+    val profile by viewModel.profile.collectAsState()
+
     Scaffold(
         containerColor = SurfaceBg,
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
-            AppTopBar(
-                title = "My Timetable",
-                onLogout = onLogout,
-                onOpenProfile = onOpenProfile
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Outlined.School,
+                            contentDescription = "App Logo",
+                            modifier = Modifier.size(28.dp),
+                            tint = PrimaryBlue
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "My Timetable",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = TextDark
+                            )
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = SurfaceBg)
             )
         }
     ) { padding ->
@@ -122,6 +141,7 @@ fun StudentTimetableScreen(
                 is StudentTimetableUiState.Loaded -> {
                     StudentTimetableContent(
                         data = current.data,
+                        profile = profile,
                         onRefresh = { viewModel.loadTimetable() }
                     )
                 }
@@ -134,6 +154,7 @@ fun StudentTimetableScreen(
 @Composable
 private fun StudentTimetableContent(
     data: TeacherTimetableResponse,
+    profile: UserProfileResponse?,
     onRefresh: () -> Unit
 ) {
     var currentTime by remember { mutableStateOf(LocalTime.now()) }
@@ -183,9 +204,9 @@ private fun StudentTimetableContent(
         contentPadding = PaddingValues(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Header Banner
+        // 1. Class Details Card (Department, Class, Section, Semester)
         item {
-            StudentTimetableHeaderCard(data = data)
+            StudentClassDetailsCard(data = data, profile = profile)
         }
 
         // 2. Currently Active Class Status Card
@@ -345,93 +366,173 @@ private fun StudentTimetableContent(
 }
 
 @Composable
-private fun StudentTimetableHeaderCard(data: TeacherTimetableResponse) {
+private fun StudentClassDetailsCard(
+    data: TeacherTimetableResponse,
+    profile: UserProfileResponse?
+) {
+    val department = profile?.department?.ifEmpty { null } ?: "Computer Science & Engineering"
+    val school = profile?.school?.ifEmpty { null } ?: "School of ICT"
+    val section = data.subtitle.substringAfter("•", "").trim().ifEmpty {
+        profile?.batch_name ?: "CS-IV-A"
+    }
+    val className = profile?.program_name?.ifEmpty { null } ?: profile?.batch_name ?: "B.Tech. CSE"
+    val semester = data.semester_info.split("•").firstOrNull()?.trim() ?: "2026-27 Odd Semester"
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
         shape = RoundedCornerShape(16.dp),
-        color = NavyHeader,
-        shadowElevation = 3.dp
+        color = Color.White,
+        border = BorderStroke(1.dp, CardBorder),
+        shadowElevation = 1.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp)
+                .padding(16.dp)
         ) {
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = Color.White.copy(alpha = 0.15f)
-            ) {
-                Text(
-                    text = data.semester_info.uppercase(),
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = data.title,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-
-            Text(
-                text = data.subtitle,
-                fontSize = 12.sp,
-                color = Color.White.copy(alpha = 0.75f)
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
+            // Top: Department & School header with Semester tag
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF60A5FA))
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEEF2FF)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.School,
+                            contentDescription = null,
+                            tint = AccentPurple,
+                            modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Lecture", color = Color.White, fontSize = 11.sp)
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF34D399))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = department,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = TextDark,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Lab", color = Color.White, fontSize = 11.sp)
+                        Text(
+                            text = school,
+                            fontSize = 11.sp,
+                            color = TextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
 
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = Color.White.copy(alpha = 0.2f)
+                    color = Color(0xFFF1F5F9),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
                 ) {
                     Text(
-                        text = "Total: ${data.total_hours.toInt()} hrs/wk • ${data.total_slots} Slots",
-                        color = Color.White,
-                        fontSize = 11.sp,
+                        text = semester,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        color = TextDark,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Class details row: Class, Section, and Total Load
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Class / Program
+                Surface(
+                    modifier = Modifier.weight(1.3f),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFF8FAFC),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "CLASS / PROGRAM",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted,
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = className,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = TextDark,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Section
+                Surface(
+                    modifier = Modifier.weight(0.9f),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFEFF6FF),
+                    border = BorderStroke(1.dp, Color(0xFFBFDBFE))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "SECTION",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E40AF),
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = section,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp,
+                            color = Color(0xFF1E3A8A)
+                        )
+                    }
+                }
+
+                // Weekly Load
+                Surface(
+                    modifier = Modifier.weight(1.1f),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFECFDF5),
+                    border = BorderStroke(1.dp, Color(0xFFA7F3D0))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "WEEKLY LOAD",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF065F46),
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "${data.total_slots} Slots (${data.total_hours.toInt()}h)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = Color(0xFF047857)
+                        )
+                    }
                 }
             }
         }

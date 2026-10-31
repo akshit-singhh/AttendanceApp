@@ -34,7 +34,7 @@ fun LoginScreen(
         Spacer(Modifier.height(16.dp))
         Text("Attendance Portal", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Sign in with the ID and password provided by your admin.",
+            "Sign in with your email or student roll number and password.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -43,7 +43,8 @@ fun LoginScreen(
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
-            label = { Text("Email") },
+            label = { Text("Email or Roll Number") },
+            placeholder = { Text("e.g. 235ICS001 or name@gbu.ac.in") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
