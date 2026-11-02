@@ -30,6 +30,7 @@ class AttendanceApp : Application() {
     override fun onCreate() {
         super.onCreate()
         tokenManager = TokenManager(this)
+        com.akshit.attendance.notification.AttendanceNotificationManager.init(this)
         val api = RetrofitClient.get(tokenManager)
         authRepository = AuthRepository(api, tokenManager)
 

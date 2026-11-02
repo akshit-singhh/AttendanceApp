@@ -81,6 +81,24 @@ interface ApiService {
     @GET("mobile/student/calendar")
     suspend fun getStudentCalendar(@Query("month") month: String? = null): StudentCalendarResponse
 
+    @POST("notifications/devices/register")
+    suspend fun registerDeviceToken(@Body body: DeviceTokenRegisterRequest): SimpleStatus
+
+    @GET("notifications/my-notifications")
+    suspend fun getMyNotifications(
+        @Query("page") page: Int = 1,
+        @Query("size") size: Int = 50,
+        @Query("unread_only") unreadOnly: Boolean = false
+    ): PaginatedNotificationsResponse
+
+    @PATCH("notifications/{recipient_id}/read")
+    suspend fun markNotificationRead(
+        @Path("recipient_id") recipientId: Int
+    ): SimpleStatus
+
+    @POST("notifications/mark-all-read")
+    suspend fun markAllNotificationsRead(): SimpleStatus
+
     @Multipart
     @POST("mobile/leaves/apply")
     suspend fun applyLeave(

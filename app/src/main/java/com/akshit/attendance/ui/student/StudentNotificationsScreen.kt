@@ -32,6 +32,10 @@ fun StudentNotificationsScreen(
     val notifications by AttendanceNotificationManager.notifications.collectAsState()
     val connectionStatus by AttendanceNotificationManager.connectionStatus.collectAsState()
 
+    LaunchedEffect(Unit) {
+        AttendanceNotificationManager.fetchHistory()
+    }
+
     var filterCategory by remember { mutableStateOf("ALL") }
 
     val unreadCount = notifications.count { !it.isRead }

@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.akshit.attendance.navigation.AppNavGraph
 import com.akshit.attendance.notification.NotificationHelper
 import com.akshit.attendance.ui.theme.AttendanceAppTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -36,6 +37,38 @@ class MainActivity : ComponentActivity() {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+
+        // Always sync Firebase FCM device token on app launch
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { fcmToken ->
+                    if (!fcmToken.isNullOrBlank()) {
+                        android.util.Log.d("AttendanceFCM", "Fetched FCM token on startup: $fcmToken")
+                        val app = application as AttendanceApp
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            try {
+                                val token = app.tokenManager.accessToken()
+                                if (!token.isNullOrBlank()) {
+                                    val api = com.akshit.attendance.data.network.RetrofitClient.get(app.tokenManager)
+                                    api.registerDeviceToken(
+                                        com.akshit.attendance.data.model.DeviceTokenRegisterRequest(
+                                            fcm_token = fcmToken,
+                                            device_type = "android"
+                                        )
+                                    )
+                                    android.util.Log.d("AttendanceFCM", "Successfully registered FCM token on startup!")
+                                } else {
+                                    android.util.Log.d("AttendanceFCM", "User not logged in yet, skipping token sync.")
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.w("AttendanceFCM", "Failed to sync FCM token on startup: ${e.message}")
+                            }
+                        }
+                    }
+                }
+        } catch (e: Exception) {
+            android.util.Log.w("AttendanceFCM", "Firebase messaging token retrieval failed: ${e.message}")
         }
 
         setContent {

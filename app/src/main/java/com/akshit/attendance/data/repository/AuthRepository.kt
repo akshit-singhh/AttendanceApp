@@ -3,6 +3,9 @@ package com.akshit.attendance.data.repository
 import com.akshit.attendance.data.model.*
 import com.akshit.attendance.data.network.ApiService
 import com.akshit.attendance.data.network.TokenManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class AuthRepository(
     private val api: ApiService,
@@ -20,6 +23,21 @@ class AuthRepository(
             userName = response.user_name,
             userEmail = response.user_email,
         )
+
+        // Automatically sync Firebase FCM registration token to backend
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { fcmToken ->
+                    if (!fcmToken.isNullOrBlank()) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                api.registerDeviceToken(DeviceTokenRegisterRequest(fcm_token = fcmToken, device_type = "android"))
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+        } catch (_: Exception) {}
+
         return response
     }
 
@@ -36,6 +54,21 @@ class AuthRepository(
             userName = response.user_name,
             userEmail = response.user_email,
         )
+
+        // Automatically sync Firebase FCM registration token to backend
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { fcmToken ->
+                    if (!fcmToken.isNullOrBlank()) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                api.registerDeviceToken(DeviceTokenRegisterRequest(fcm_token = fcmToken, device_type = "android"))
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+        } catch (_: Exception) {}
+
         return response
     }
 

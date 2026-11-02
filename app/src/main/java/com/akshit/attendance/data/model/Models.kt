@@ -275,3 +275,33 @@ data class PostponeClassRequest(
     val date: String,
     val reason: String
 )
+
+@Serializable
+data class DeviceTokenRegisterRequest(
+    val fcm_token: String,
+    val device_type: String = "android"
+)
+
+@Serializable
+data class NotificationRecipientItem(
+    val id: Int,
+    val notification_id: Int,
+    val title: String,
+    val message: String,
+    val notification_type: String = "GENERAL",
+    val priority: String = "NORMAL",
+    val sender_name: String = "University",
+    val action_url: String? = null,
+    val is_read: Boolean = false,
+    val read_at: String? = null,
+    val created_at: String = ""
+)
+
+@Serializable
+data class PaginatedNotificationsResponse(
+    val items: List<NotificationRecipientItem> = emptyList(),
+    val total: Int = 0,
+    val unread_count: Int = 0,
+    val page: Int = 1,
+    val size: Int = 50
+)
