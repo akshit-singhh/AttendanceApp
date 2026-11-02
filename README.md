@@ -44,8 +44,10 @@ A production-grade mobile attendance management client built with **Kotlin**, **
 - **Leave Applications & Tracking**:
   - Apply for medical or duty leaves directly from mobile.
   - Real-time status tracking (*Pending*, *Approved*, *Rejected*).
-- **In-App Notifications**:
-  - Instant alerts for newly marked attendance sessions, leave request approvals, and low attendance warnings.
+- **In-App Notifications & Firebase Cloud Messaging (FCM)**:
+  - Real-time heads-up push notifications for newly marked attendance sessions, class postponements, academic orders, and university broadcasts (even when the app is killed or running in the background).
+  - Production in-app notification center synchronized directly with the backend database (`GET /api/v1/notifications/my-notifications`).
+  - Instant status management (*Mark as Read*, *Mark All Read*) with optimistic UI state updates and database persistence.
 
 ---
 
@@ -73,8 +75,9 @@ A production-grade mobile attendance management client built with **Kotlin**, **
 | **UI Framework** | Jetpack Compose + Material 3 |
 | **Architecture** | MVVM (Model-View-ViewModel) + Repository Pattern |
 | **Reactive State** | Kotlin Coroutines, `StateFlow`, `SharedFlow` |
-| **Networking** | Retrofit 2 + OkHttp 3 + Moshi JSON Converter |
-| **Security & Auth** | JWT Bearer Token stored in encrypted `TokenManager` (SharedPreferences) |
+| **Networking** | Retrofit 2 + OkHttp 3 + kotlinx.serialization |
+| **Push Notifications** | Firebase Cloud Messaging (FCM) + Android NotificationManager |
+| **Security & Auth** | JWT Bearer Token stored in encrypted `TokenManager` (Preferences DataStore) |
 | **Navigation** | AndroidX Navigation Compose with type-safe `Routes` |
 | **Image & Icons** | Material Symbols / Compose Icons with SVG vector support |
 
@@ -86,9 +89,14 @@ A production-grade mobile attendance management client built with **Kotlin**, **
 app/src/main/java/com/akshit/attendance/
 ├── AttendanceApp.kt            # Application entry point, global dependencies
 ├── MainActivity.kt             # Single-activity Compose host
+├── notification/               # Push notification handling & in-app inbox
+│   ├── AttendanceFirebaseMessagingService.kt # FCM background token refresh & push listener
+│   ├── AttendanceNotificationManager.kt      # Direct backend API sync for notification inbox
+│   ├── NotificationHelper.kt                 # System notification channel & heads-up banner builder
+│   └── NotificationItem.kt                   # UI notification model
 ├── data/
 │   ├── model/                  # Data Transfer Objects (DTOs) matching backend schemas
-│   │   └── Models.kt           # User, Class, AttendanceRecord, Leave, Stats models
+│   │   └── Models.kt           # User, Class, AttendanceRecord, Leave, Stats, Notification models
 │   ├── network/                # REST API Client & Interceptors
 │   │   ├── ApiConfig.kt        # Base URL configuration (emulator vs physical IP)
 │   │   ├── ApiService.kt       # Retrofit endpoint interfaces
@@ -185,3 +193,23 @@ Output APK will be generated at:
 - **Small Screens (720p / Android 11)**: All headings, metrics cards, and roll call rows auto-scale without horizontal scroll or truncated text.
 - **High-Density Displays (1080p+ / Android 16)**: Edge-to-edge support with custom insets handling ensures the bottom navigation bar and status bar blend seamlessly into the background without duplicate dividers or black borders.
 - **Network Resilience**: Full graceful error handling with shimmer placeholders on network delay and actionable retry prompts.
+
+
+---
+
+## Firebase Cloud Messaging (FCM) Setup
+
+1. **Firebase Console**:
+   - Create a project in [Firebase Console](https://console.firebase.google.com/).
+   - Add an Android App with package name: `com.akshit.attendance`.
+2. **Configuration File**:
+   - Download `google-services.json` and place it in:
+     ```
+     app/google-services.json
+     ```
+     *(Note: `google-services.json` is ignored in `.gitignore` to prevent leaking private project credentials to public repositories).*
+3. **Automatic Registration**:
+   - On app startup or login, `MainActivity` and `AuthRepository` automatically fetch the FCM token and register it with the backend via `POST /api/v1/notifications/devices/register`.
+   - When a broadcast or alert is dispatched, the device receives an immediate heads-up push banner with sound/vibration.
+
+---
