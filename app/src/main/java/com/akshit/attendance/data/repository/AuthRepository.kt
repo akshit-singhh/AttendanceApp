@@ -83,7 +83,24 @@ class AuthRepository(
         api.resetPassword(ResetPasswordRequest(email, otp, newPassword))
 
     suspend fun logout() {
-        tokenManager.refreshToken()?.let { api.logout(RefreshTokenRequest(it)) }
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { fcmToken ->
+                    if (!fcmToken.isNullOrBlank()) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                api.unregisterDeviceToken(DeviceTokenRegisterRequest(fcm_token = fcmToken, device_type = "android"))
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+        } catch (_: Exception) {}
+
+        tokenManager.refreshToken()?.let {
+            try {
+                api.logout(RefreshTokenRequest(it))
+            } catch (_: Exception) {}
+        }
         tokenManager.clear()
     }
 

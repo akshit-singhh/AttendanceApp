@@ -13,19 +13,25 @@ import com.akshit.attendance.R
 
 object NotificationHelper {
 
-    const val CHANNEL_ID = "attendance_alerts"
-    const val CHANNEL_NAME = "Attendance Alerts"
+    const val CHANNEL_ID = "university_broadcasts"
+    const val CHANNEL_NAME = "University Broadcasts & Attendance"
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, importance).apply {
+                description = "Official university circulars, attendance alerts, and notices"
+                enableVibration(true)
+                enableLights(true)
+            }
+            val legacyChannel = NotificationChannel("attendance_alerts", "Attendance Alerts", importance).apply {
                 description = "Real-time alerts when teachers record your attendance"
                 enableVibration(true)
                 enableLights(true)
             }
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
+            notificationManager.createNotificationChannel(legacyChannel)
         }
     }
 

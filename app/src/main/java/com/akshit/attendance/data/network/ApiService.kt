@@ -84,6 +84,9 @@ interface ApiService {
     @POST("notifications/devices/register")
     suspend fun registerDeviceToken(@Body body: DeviceTokenRegisterRequest): SimpleStatus
 
+    @POST("notifications/devices/unregister")
+    suspend fun unregisterDeviceToken(@Body body: DeviceTokenRegisterRequest): SimpleStatus
+
     @GET("notifications/my-notifications")
     suspend fun getMyNotifications(
         @Query("page") page: Int = 1,
