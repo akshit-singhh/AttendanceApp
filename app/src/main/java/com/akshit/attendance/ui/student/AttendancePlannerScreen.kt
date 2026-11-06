@@ -28,7 +28,7 @@ import java.util.Locale
 @Composable
 fun AttendancePlannerScreen(
     viewModel: StudentViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: (() -> Unit)? = null
 ) {
     val plannerItems by viewModel.plannerItems.collectAsState()
     val dashboardState by viewModel.dashboard.collectAsState()
@@ -54,8 +54,10 @@ fun AttendancePlannerScreen(
             TopAppBar(
                 title = { Text("Attendance Planner", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextDark) },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextDark)
+                    if (onNavigateBack != null) {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextDark)
+                        }
                     }
                 },
                 actions = {

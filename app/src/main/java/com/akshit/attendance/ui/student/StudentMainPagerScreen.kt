@@ -1,5 +1,6 @@
 package com.akshit.attendance.ui.student
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -8,7 +9,14 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Scaffold
 import com.akshit.attendance.ui.theme.SurfaceBg
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.akshit.attendance.ui.components.AppBottomNav
 import com.akshit.attendance.ui.components.studentDestinations
@@ -30,6 +38,45 @@ fun StudentMainPagerScreen(
         pageCount = { studentDestinations.size }
     )
     val coroutineScope = rememberCoroutineScope()
+
+    // History stack to track visited tab pages for natural back navigation
+    val pageHistory = remember { mutableStateListOf<Int>() }
+    var previousPage by remember { mutableIntStateOf(pagerState.currentPage) }
+    var isBackNavigation by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pagerState.currentPage) {
+        val current = pagerState.currentPage
+        if (current != previousPage) {
+            if (!isBackNavigation) {
+                // Record previous page into history, avoiding duplicate entries
+                if (pageHistory.lastOrNull() != previousPage) {
+                    pageHistory.add(previousPage)
+                }
+            }
+            isBackNavigation = false
+            previousPage = current
+        }
+        // When user explicitly arrives at the Home Dashboard, clear back history
+        if (current == 0) {
+            pageHistory.clear()
+        }
+    }
+
+    // Intercept back button: go back to the previous screen/tab instead of exiting app
+    BackHandler(enabled = pagerState.currentPage != 0 || pageHistory.isNotEmpty()) {
+        if (pageHistory.isNotEmpty()) {
+            val targetPage = pageHistory.removeAt(pageHistory.lastIndex)
+            isBackNavigation = true
+            coroutineScope.launch {
+                pagerState.animateScrollToPage(targetPage)
+            }
+        } else if (pagerState.currentPage != 0) {
+            isBackNavigation = true
+            coroutineScope.launch {
+                pagerState.animateScrollToPage(0)
+            }
+        }
+    }
 
     Scaffold(
         containerColor = SurfaceBg,
@@ -86,16 +133,10 @@ fun StudentMainPagerScreen(
                         onOpenProfile = onOpenProfile
                     )
                     3 -> AttendancePlannerScreen(
-                        viewModel = viewModel,
-                        onNavigateBack = {
-                            coroutineScope.launch { pagerState.animateScrollToPage(0) }
-                        }
+                        viewModel = viewModel
                     )
                     4 -> StudentCalendarScreen(
-                        viewModel = viewModel,
-                        onNavigateBack = {
-                            coroutineScope.launch { pagerState.animateScrollToPage(0) }
-                        }
+                        viewModel = viewModel
                     )
                 }
             }

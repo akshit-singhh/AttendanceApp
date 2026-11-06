@@ -37,7 +37,7 @@ import java.util.*
 @Composable
 fun StudentCalendarScreen(
     viewModel: StudentViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: (() -> Unit)? = null
 ) {
     val dashboardState by viewModel.dashboard.collectAsState()
     val calendarState by viewModel.calendarState.collectAsState()
@@ -110,8 +110,10 @@ fun StudentCalendarScreen(
             TopAppBar(
                 title = { Text("Attendance Calendar", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextDark) },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextDark)
+                    if (onNavigateBack != null) {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextDark)
+                        }
                     }
                 },
                 actions = {
