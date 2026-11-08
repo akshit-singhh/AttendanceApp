@@ -16,6 +16,7 @@ import com.akshit.attendance.ui.theme.Primary
 fun LoginScreen(
     viewModel: AuthViewModel,
     onLoggedIn: (response: TokenResponse, passwordUsed: String) -> Unit,
+    onForgotPassword: () -> Unit = {},
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -77,7 +78,7 @@ fun LoginScreen(
         }
 
         Spacer(Modifier.height(12.dp))
-        TextButton(onClick = { /* TODO: forgot-password flow (OTP screen not built yet) */ }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+        TextButton(onClick = onForgotPassword, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text("Forgot password?")
         }
     }

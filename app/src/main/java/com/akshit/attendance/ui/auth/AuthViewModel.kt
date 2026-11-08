@@ -17,6 +17,14 @@ sealed interface AuthUiState {
     data class Error(val message: String) : AuthUiState
 }
 
+sealed interface ForgotPasswordUiState {
+    object Idle : ForgotPasswordUiState
+    object Loading : ForgotPasswordUiState
+    data class OtpSent(val message: String) : ForgotPasswordUiState
+    data class ResetSuccess(val message: String) : ForgotPasswordUiState
+    data class Error(val message: String) : ForgotPasswordUiState
+}
+
 class AuthViewModel(
     private val repo: AuthRepository,
     private val tokenManager: TokenManager // Injected to read and write saved sessions
@@ -158,5 +166,59 @@ class AuthViewModel(
 
     fun resetState() {
         _state.value = AuthUiState.Idle
+    }
+
+    private val _forgotPasswordState = MutableStateFlow<ForgotPasswordUiState>(ForgotPasswordUiState.Idle)
+    val forgotPasswordState: StateFlow<ForgotPasswordUiState> = _forgotPasswordState
+
+    fun sendForgotPasswordOtp(identifier: String) {
+        val trimmed = identifier.trim()
+        if (trimmed.isBlank()) {
+            _forgotPasswordState.value = ForgotPasswordUiState.Error("Please enter your email or student roll number.")
+            return
+        }
+        _forgotPasswordState.value = ForgotPasswordUiState.Loading
+        viewModelScope.launch {
+            try {
+                val res = repo.forgotPassword(trimmed)
+                _forgotPasswordState.value = ForgotPasswordUiState.OtpSent(res.message ?: "Verification code sent to your email.")
+            } catch (e: Exception) {
+                _forgotPasswordState.value = ForgotPasswordUiState.Error(e.message ?: "Failed to send reset code. Please try again.")
+            }
+        }
+    }
+
+    fun submitResetPassword(identifier: String, otp: String, newPassword: String, confirm: String) {
+        val trimmedIdentifier = identifier.trim()
+        val trimmedOtp = otp.trim()
+        if (trimmedOtp.isBlank()) {
+            _forgotPasswordState.value = ForgotPasswordUiState.Error("Enter the 6-digit OTP code.")
+            return
+        }
+        if (trimmedOtp.length != 6) {
+            _forgotPasswordState.value = ForgotPasswordUiState.Error("OTP code must be exactly 6 digits.")
+            return
+        }
+        if (newPassword.length < 8) {
+            _forgotPasswordState.value = ForgotPasswordUiState.Error("New password must be at least 8 characters.")
+            return
+        }
+        if (newPassword != confirm) {
+            _forgotPasswordState.value = ForgotPasswordUiState.Error("Passwords do not match.")
+            return
+        }
+        _forgotPasswordState.value = ForgotPasswordUiState.Loading
+        viewModelScope.launch {
+            try {
+                val res = repo.resetPassword(trimmedIdentifier, trimmedOtp, newPassword)
+                _forgotPasswordState.value = ForgotPasswordUiState.ResetSuccess(res.message ?: "Password reset successfully.")
+            } catch (e: Exception) {
+                _forgotPasswordState.value = ForgotPasswordUiState.Error(e.message ?: "Invalid or expired OTP.")
+            }
+        }
+    }
+
+    fun resetForgotPasswordState() {
+        _forgotPasswordState.value = ForgotPasswordUiState.Idle
     }
 }

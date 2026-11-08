@@ -2,6 +2,7 @@ package com.akshit.attendance.navigation
 
 object Routes {
     const val LOGIN = "login"
+    const val FORGOT_PASSWORD = "forgot_password"
     const val CREATE_PASSWORD = "create_password"
     const val ROLE_PICKER = "role_picker"
 

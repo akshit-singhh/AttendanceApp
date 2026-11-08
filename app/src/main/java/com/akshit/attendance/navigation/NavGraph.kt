@@ -27,6 +27,7 @@ import com.akshit.attendance.data.model.TokenResponse
 import com.akshit.attendance.ui.auth.AuthUiState
 import com.akshit.attendance.ui.auth.AuthViewModel
 import com.akshit.attendance.ui.auth.CreatePasswordScreen
+import com.akshit.attendance.ui.auth.ForgotPasswordScreen
 import com.akshit.attendance.ui.auth.LoginScreen
 import com.akshit.attendance.ui.auth.RolePickerScreen
 import com.akshit.attendance.ui.components.AppBottomNav
@@ -114,6 +115,24 @@ fun AppNavGraph(app: AttendanceApp) {
                     authViewModel.resetState()
                     routeAfterAuth(response)
                 },
+                onForgotPassword = {
+                    authViewModel.resetForgotPasswordState()
+                    navController.navigate(Routes.FORGOT_PASSWORD)
+                }
+            )
+        }
+
+        composable(Routes.FORGOT_PASSWORD) {
+            ForgotPasswordScreen(
+                viewModel = authViewModel,
+                onNavigateBack = {
+                    authViewModel.resetForgotPasswordState()
+                    navController.popBackStack()
+                },
+                onResetSuccess = {
+                    authViewModel.resetForgotPasswordState()
+                    navController.popBackStack(Routes.LOGIN, inclusive = false)
+                }
             )
         }
 
