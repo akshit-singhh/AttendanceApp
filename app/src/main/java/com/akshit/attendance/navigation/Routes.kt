@@ -21,6 +21,7 @@ object Routes {
     const val TEACHER_ROLL_CALL = "teacher_roll_call/{courseOfferingId}?sessionDate={sessionDate}"
     const val TEACHER_TIMETABLE = "teacher_timetable"
     const val TEACHER_RECORDS = "teacher_records"
+    const val TEACHER_NOTIFICATIONS = "teacher_notifications"
     const val PROFILE = "profile"
 
     fun rollCall(courseOfferingId: Int, sessionDate: String? = null) =

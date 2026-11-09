@@ -25,7 +25,8 @@ fun AppTopBar(
     eyebrow: String = "", // Kept so it doesn't break StudentDashboard, but ignored in UI
     title: String,
     onLogout: () -> Unit = {},
-    onOpenProfile: (() -> Unit)? = null
+    onOpenProfile: (() -> Unit)? = null,
+    onNotificationsClick: (() -> Unit)? = null
 ) {
     var profileMenuExpanded by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
@@ -69,7 +70,7 @@ fun AppTopBar(
             }
         },
         actions = {
-            IconButton(onClick = { /* notifications */ }) {
+            IconButton(onClick = { onNotificationsClick?.invoke() }) {
                 Icon(Icons.Default.Notifications, contentDescription = "Notifications")
             }
             Box(

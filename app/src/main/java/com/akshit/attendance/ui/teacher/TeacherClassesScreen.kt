@@ -43,6 +43,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.akshit.attendance.data.model.CourseScheduleResponse
 import com.akshit.attendance.data.model.PendingClassResponse
 import com.akshit.attendance.ui.components.AppTopBar
+import com.akshit.attendance.notification.AttendanceNotificationManager
 import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.LocalTime
@@ -66,7 +67,8 @@ fun TeacherClassesScreen(
     viewModel: TeacherViewModel,
     onStartRollCall: (Int, String?) -> Unit,
     onLogout: () -> Unit,
-    onOpenProfile: () -> Unit = {}
+    onOpenProfile: () -> Unit = {},
+    onNavigateToNotifications: () -> Unit = {}
 ) {
     var currentTime by remember { mutableStateOf(LocalTime.now()) }
     var selectedTab by remember { mutableStateOf(0) } // 0 = Today's Classes, 1 = Pending Attendance
@@ -94,6 +96,7 @@ fun TeacherClassesScreen(
     LaunchedEffect(Unit) {
         viewModel.loadSchedule()
         viewModel.loadPendingClasses()
+        AttendanceNotificationManager.fetchHistory()
         while (true) {
             delay(15_000L) // Refresh every 15 seconds to update real-time class states
             currentTime = LocalTime.now()
@@ -108,6 +111,8 @@ fun TeacherClassesScreen(
     } else 0
 
     val profile by viewModel.profile.collectAsState()
+    val notifications by AttendanceNotificationManager.notifications.collectAsState()
+    val unreadNotificationCount = remember(notifications) { notifications.count { !it.isRead } }
 
     val currentHour = remember { LocalTime.now().hour }
     val greeting = remember(currentHour) {
@@ -194,12 +199,29 @@ fun TeacherClassesScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        IconButton(onClick = { /* notifications */ }) {
-                            Icon(
-                                Icons.Default.Notifications,
-                                contentDescription = "Notifications",
-                                tint = Color(0xFF0F172A)
-                            )
+                        IconButton(onClick = onNavigateToNotifications) {
+                            BadgedBox(
+                                badge = {
+                                    if (unreadNotificationCount > 0) {
+                                        Badge(
+                                            containerColor = SemanticRed,
+                                            contentColor = Color.White
+                                        ) {
+                                            Text(
+                                                if (unreadNotificationCount > 9) "9+" else unreadNotificationCount.toString(),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Default.Notifications,
+                                    contentDescription = "Notifications",
+                                    tint = Color(0xFF0F172A)
+                                )
+                            }
                         }
 
                         IconButton(onClick = onOpenProfile) {

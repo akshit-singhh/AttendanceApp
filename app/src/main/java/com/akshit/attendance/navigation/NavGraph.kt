@@ -37,6 +37,7 @@ import com.akshit.attendance.ui.components.teacherDestinations
 import com.akshit.attendance.ui.student.*
 import com.akshit.attendance.ui.teacher.TeacherTimetableScreen
 import com.akshit.attendance.ui.teacher.TeacherClassesScreen
+import com.akshit.attendance.ui.teacher.TeacherNotificationsScreen
 import com.akshit.attendance.ui.teacher.TeacherRecordsScreen
 import com.akshit.attendance.ui.teacher.TeacherRollCallScreen
 import com.akshit.attendance.ui.teacher.TeacherViewModel
@@ -217,7 +218,8 @@ fun AppNavGraph(app: AttendanceApp) {
                         navController.navigate(Routes.rollCall(courseOfferingId, sessionDate))
                     },
                     onLogout = performLogout,
-                    onOpenProfile = { navController.navigate(Routes.PROFILE) }
+                    onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                    onNavigateToNotifications = { navController.navigate(Routes.TEACHER_NOTIFICATIONS) }
                 )
             }
         }
@@ -247,11 +249,17 @@ fun AppNavGraph(app: AttendanceApp) {
                         navController.navigate(Routes.rollCall(courseOfferingId))
                     },
                     onLogout = performLogout,
-                    onOpenProfile = { navController.navigate(Routes.PROFILE) }
+                    onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                    onNavigateToNotifications = { navController.navigate(Routes.TEACHER_NOTIFICATIONS) }
                 )
             }
         }
         composable(Routes.TEACHER_RECORDS) { TeacherScaffold(navController, factory) { TeacherRecordsScreen(app.teacherRepository) } }
+        composable(Routes.TEACHER_NOTIFICATIONS) {
+            TeacherNotificationsScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
 
         composable(Routes.PROFILE) {
             val profileVm: ProfileViewModel = viewModel(factory = factory)

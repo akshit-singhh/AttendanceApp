@@ -59,7 +59,8 @@ fun TeacherTimetableScreen(
     viewModel: TeacherViewModel,
     onStartRollCall: (Int) -> Unit = {},
     onLogout: () -> Unit = {},
-    onOpenProfile: () -> Unit = {}
+    onOpenProfile: () -> Unit = {},
+    onNavigateToNotifications: () -> Unit = {}
 ) {
     val state by viewModel.timetable.collectAsState()
 
@@ -70,7 +71,8 @@ fun TeacherTimetableScreen(
             AppTopBar(
                 title = "Timetable & Workload",
                 onLogout = onLogout,
-                onOpenProfile = onOpenProfile
+                onOpenProfile = onOpenProfile,
+                onNotificationsClick = onNavigateToNotifications
             )
         }
     ) { padding ->
