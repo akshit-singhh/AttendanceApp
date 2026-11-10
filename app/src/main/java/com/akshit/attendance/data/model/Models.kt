@@ -80,6 +80,7 @@ data class StudentRosterResponse(
     val roll_number: String,
     val full_name: String,
     val status: AttendanceStatus? = null,
+    val record_id: Int? = null,
 )
 
 @Serializable
