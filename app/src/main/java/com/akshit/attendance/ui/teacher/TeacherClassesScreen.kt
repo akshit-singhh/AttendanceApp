@@ -1,4 +1,4 @@
-package com.akshit.attendance.ui.teacher
+﻿package com.akshit.attendance.ui.teacher
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -152,7 +152,7 @@ fun TeacherClassesScreen(
 
     val currentDate = remember { LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM")) }
     val deptText = profile?.department ?: profile?.school
-    val subtitleMeta = if (!deptText.isNullOrBlank()) "Faculty • $deptText" else "Faculty • $currentDate"
+    val subtitleMeta = if (!deptText.isNullOrBlank()) "Faculty â€¢ $deptText" else "Faculty â€¢ $currentDate"
 
     Scaffold(
         containerColor = com.akshit.attendance.ui.theme.SurfaceBg,
@@ -288,6 +288,30 @@ fun TeacherClassesScreen(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
+                if (s.fromCache) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.History,
+                                contentDescription = null,
+                                tint = Color(0xFF64748B),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                "Showing cached schedule from last session",
+                                fontSize = 11.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                    }
+                }
+
                 item {
                     DashboardTabSelector(
                         selectedTab = selectedTab,
@@ -496,9 +520,9 @@ private fun formatTimeBlock(start: String, end: String): String {
         val formatter = DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH)
         val s = (safeParseLocalTime(start) ?: LocalTime.parse(start)).format(formatter)
         val e = (safeParseLocalTime(end) ?: LocalTime.parse(end)).format(formatter)
-        "$s – $e"
+        "$s â€“ $e"
     } catch (_: Exception) {
-        "$start – $end"
+        "$start â€“ $end"
     }
 }
 
@@ -776,7 +800,7 @@ private fun ClassCard(
                 } else if (state == ClassState.MISSED) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFFFF3E0)) {
-                        Text("Class Ended • Unmarked", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = Color(0xFFD84315), fontWeight = FontWeight.Bold)
+                        Text("Class Ended â€¢ Unmarked", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = Color(0xFFD84315), fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -802,7 +826,7 @@ private fun ClassCard(
                         ClassState.UPCOMING -> TextGray
                     }
                     Text(formatTimeBlock(course.start_time, course.end_time), style = MaterialTheme.typography.bodySmall, color = TextGray)
-                    Text("  •  ", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                    Text("  â€¢  ", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
                     Text(statusText, style = MaterialTheme.typography.labelMedium, color = statusColor, fontWeight = FontWeight.SemiBold)
                 }
 
@@ -1166,7 +1190,7 @@ private fun PendingClassCard(
                     color = if (item.is_expiring_soon) Color(0xFFFEE2E2) else Color(0xFFFEF3C7)
                 ) {
                     Text(
-                        text = if (item.is_expiring_soon) "⚠️ ${item.days_remaining}d left" else "⏳ ${item.days_remaining}d left",
+                        text = if (item.is_expiring_soon) "âš ï¸ ${item.days_remaining}d left" else "â³ ${item.days_remaining}d left",
                         color = if (item.is_expiring_soon) Color(0xFFB91C1C) else Color(0xFFB45309),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -1373,7 +1397,7 @@ private fun PostponeClassDialog(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "Sec: ${target.sectionName} • Date: ${target.date}",
+                            text = "Sec: ${target.sectionName} â€¢ Date: ${target.date}",
                             fontSize = 11.sp,
                             color = Color(0xFFB45309),
                             maxLines = 1,
@@ -1526,7 +1550,7 @@ private fun ExtraClassDialog(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            "${course.subject_code} • Section: ${course.section_name}",
+                                            "${course.subject_code} â€¢ Section: ${course.section_name}",
                                             fontSize = 11.sp,
                                             color = TextGray,
                                             maxLines = 1,

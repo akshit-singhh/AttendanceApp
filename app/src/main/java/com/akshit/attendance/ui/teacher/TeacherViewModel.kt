@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.akshit.attendance.data.model.*
 import com.akshit.attendance.data.network.TokenManager
 import com.akshit.attendance.data.offline.OfflineAttendanceManager
+import com.akshit.attendance.data.offline.TeacherCacheManager
 import com.akshit.attendance.data.repository.TeacherRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +19,8 @@ sealed interface ScheduleUiState {
     data class Loaded(
         val classes: List<CourseScheduleResponse>,
         val submittedOfferingIds: Set<Int> = emptySet(),
-        val teacherName: String? = null
+        val teacherName: String? = null,
+        val fromCache: Boolean = false   // true when shown from local cache (offline)
     ) : ScheduleUiState
     data class Error(val message: String) : ScheduleUiState
 }
@@ -135,30 +137,59 @@ class TeacherViewModel(
 
     fun loadSchedule(day: String? = null) {
         viewModelScope.launch {
-            _schedule.value = ScheduleUiState.Loading
-            _schedule.value = try {
-                val classes = repo.getSchedule(null, day)
-                val teacherName = tokenManager?.userName()
-                val todayStr = LocalDate.now().toString()
+            val teacherName = tokenManager?.userName()
+            val todayStr = LocalDate.now().toString()
 
+            // ── Step 1: Show cached data instantly (zero-latency, works fully offline) ──
+            val cached = TeacherCacheManager.loadSchedule()
+            if (cached.isNotEmpty()) {
+                val queuedIds = OfflineAttendanceManager.submittedOfferingIds.value
+                _schedule.value = ScheduleUiState.Loaded(
+                    classes = cached,
+                    submittedOfferingIds = queuedIds,
+                    teacherName = teacherName,
+                    fromCache = !TeacherCacheManager.isScheduleCacheForToday()
+                )
+            } else {
+                _schedule.value = ScheduleUiState.Loading
+            }
+
+            // ── Step 2: Fetch fresh from network in background ──
+            try {
+                val classes = repo.getSchedule(null, day)
                 val submittedToday = try {
                     repo.getHistory()
                         .filter { it.date == todayStr }
                         .map { it.course_offering_id }
                         .toSet()
-                } catch (_: Exception) {
-                    emptySet()
-                }
+                } catch (_: Exception) { emptySet() }
 
-                val queuedOfferingIds = OfflineAttendanceManager.submittedOfferingIds.value
-
-                ScheduleUiState.Loaded(
+                val queuedIds = OfflineAttendanceManager.submittedOfferingIds.value
+                _schedule.value = ScheduleUiState.Loaded(
                     classes = classes,
-                    submittedOfferingIds = submittedToday + queuedOfferingIds,
-                    teacherName = teacherName
+                    submittedOfferingIds = submittedToday + queuedIds,
+                    teacherName = teacherName,
+                    fromCache = false
                 )
+
+                // Save fresh schedule to disk
+                TeacherCacheManager.saveSchedule(classes)
+
+                // ── Step 3: Pre-fetch all rosters for today's classes in background ──
+                // So the teacher can open any class card and start roll call even with no signal.
+                TeacherCacheManager.prefetchRosters(
+                    offeringIds = classes.map { it.course_offering_id }
+                ) { offeringId ->
+                    repo.getRoster(offeringId, todayStr)
+                }
             } catch (e: Exception) {
-                ScheduleUiState.Error(e.message ?: "Could not load today's classes.")
+                // Network failed — keep whatever is currently displayed (cache or loading)
+                // Only show error if we have nothing at all to show
+                if (_schedule.value is ScheduleUiState.Loading) {
+                    _schedule.value = ScheduleUiState.Error(
+                        e.message ?: "Could not load today's classes."
+                    )
+                }
             }
         }
     }
@@ -172,46 +203,57 @@ class TeacherViewModel(
         activeSessionDate = sessionDate
         _roster.value = RosterUiState.Loading
         viewModelScope.launch {
-            _roster.value = try {
-                // Ensure the schedule is loaded so we can lookup course details
-                if (_schedule.value !is ScheduleUiState.Loaded) {
-                    try {
-                        val classes = repo.getSchedule(null, null)
-                        val teacherName = tokenManager?.userName()
-                        val todayStr = LocalDate.now().toString()
-                        val submittedToday = try {
-                            repo.getHistory()
-                                .filter { it.date == todayStr }
-                                .map { it.course_offering_id }
-                                .toSet()
-                        } catch (_: Exception) { emptySet() }
-                        _schedule.value = ScheduleUiState.Loaded(
-                            classes = classes,
-                            submittedOfferingIds = submittedToday,
-                            teacherName = teacherName
-                        )
-                    } catch (_: Exception) { /* best effort */ }
-                }
+            val targetDate = sessionDate ?: LocalDate.now().toString()
 
-                val targetDate = sessionDate ?: LocalDate.now().toString()
-                val roster = repo.getRoster(courseOfferingId, targetDate)
-
-                // Lookup the course details from our already loaded schedule or custom course info
-                val currentSchedule = _schedule.value
-                val courseInfo = customCourseInfo ?: if (currentSchedule is ScheduleUiState.Loaded) {
-                    currentSchedule.classes.find { it.course_offering_id == courseOfferingId }
-                } else null
-
-                RosterUiState.Loaded(
-                    roster = roster,
-                    marks = roster.associate { it.student_id to (it.status ?: AttendanceStatus.PRESENT) },
+            // ── Step 1: Show cached roster instantly ──
+            val cachedRoster = TeacherCacheManager.loadRoster(courseOfferingId)
+            if (cachedRoster != null) {
+                val courseInfo = resolvecourseInfo(courseOfferingId, customCourseInfo)
+                _roster.value = RosterUiState.Loaded(
+                    roster = cachedRoster,
+                    marks = cachedRoster.associate { it.student_id to (it.status ?: AttendanceStatus.PRESENT) },
                     courseInfo = courseInfo,
                     sessionDate = sessionDate
                 )
+            }
+
+            // ── Step 2: Try to fetch fresh roster from network ──
+            try {
+                val freshRoster = repo.getRoster(courseOfferingId, targetDate)
+                val courseInfo = resolvecourseInfo(courseOfferingId, customCourseInfo)
+                _roster.value = RosterUiState.Loaded(
+                    roster = freshRoster,
+                    marks = freshRoster.associate { it.student_id to (it.status ?: AttendanceStatus.PRESENT) },
+                    courseInfo = courseInfo,
+                    sessionDate = sessionDate
+                )
+                // Update cache with the fresh data
+                TeacherCacheManager.saveRoster(courseOfferingId, freshRoster)
             } catch (e: Exception) {
-                RosterUiState.Error(e.message ?: "Could not load roster.")
+                // Network failed — only emit error if we have nothing cached to show
+                if (_roster.value is RosterUiState.Loading) {
+                    _roster.value = RosterUiState.Error(
+                        e.message ?: "Could not load student roster."
+                    )
+                }
+                // If we already showed cached roster above, the user can still take attendance
             }
         }
+    }
+
+    /** Resolves CourseScheduleResponse from loaded schedule or custom override. */
+    private fun resolvecourseInfo(
+        courseOfferingId: Int,
+        customCourseInfo: CourseScheduleResponse?
+    ): CourseScheduleResponse? {
+        if (customCourseInfo != null) return customCourseInfo
+        val sched = _schedule.value
+        if (sched is ScheduleUiState.Loaded) {
+            return sched.classes.find { it.course_offering_id == courseOfferingId }
+        }
+        // Fall back to cached schedule on disk
+        return TeacherCacheManager.loadSchedule()
+            .find { it.course_offering_id == courseOfferingId }
     }
 
     fun toggleMark(studentId: Int) {
@@ -288,7 +330,12 @@ class TeacherViewModel(
             repo.getSchedule(null, "ALL").distinctBy { it.course_offering_id }
         } catch (_: Exception) {
             val curr = _schedule.value
-            if (curr is ScheduleUiState.Loaded) curr.classes.distinctBy { it.course_offering_id } else emptyList()
+            if (curr is ScheduleUiState.Loaded) {
+                curr.classes.distinctBy { it.course_offering_id }
+            } else {
+                // Last resort: read from disk cache (works fully offline)
+                TeacherCacheManager.loadSchedule().distinctBy { it.course_offering_id }
+            }
         }
     }
 
