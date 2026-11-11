@@ -41,6 +41,8 @@ class AttendanceApp : Application() {
         teacherRepository = RealTeacherRepository(api)
         studentRepository = RealStudentRepository(api)
 
+        com.akshit.attendance.data.offline.OfflineAttendanceManager.init(this) { teacherRepository }
+
         // Uncomment to develop UI fully offline against sample data:
         // teacherRepository = MockTeacherRepository()
         // studentRepository = MockStudentRepository()

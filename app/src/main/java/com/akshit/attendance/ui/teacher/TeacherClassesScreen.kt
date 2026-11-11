@@ -21,6 +21,11 @@ import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.EventBusy
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.CloudQueue
+import androidx.compose.material.icons.outlined.CloudDone
+import androidx.compose.material.icons.outlined.Sync
+import com.akshit.attendance.data.offline.OfflineAttendanceManager
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -246,24 +251,43 @@ fun TeacherClassesScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        when (val s = state) {
-            is ScheduleUiState.Loading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = PrimaryBlue)
+        val queuedCount by OfflineAttendanceManager.queuedCount.collectAsState()
+        val isOnline by OfflineAttendanceManager.isOnline.collectAsState()
+        val isSyncing by OfflineAttendanceManager.isSyncing.collectAsState()
+        val lastSyncMessage by OfflineAttendanceManager.lastSyncMessage.collectAsState()
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            if (queuedCount > 0 || !isOnline || isSyncing || lastSyncMessage != null) {
+                OfflineSyncBanner(
+                    queuedCount = queuedCount,
+                    isOnline = isOnline,
+                    isSyncing = isSyncing,
+                    lastSyncMessage = lastSyncMessage,
+                    onSyncNow = { viewModel.syncOfflineQueue() },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
             }
-            is ScheduleUiState.Error -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(s.message, color = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = { viewModel.loadSchedule() }) { Text("Retry") }
+
+            when (val s = state) {
+                is ScheduleUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = PrimaryBlue)
                 }
-            }
-            is ScheduleUiState.Loaded -> LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
+                is ScheduleUiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(s.message, color = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = { viewModel.loadSchedule() }) { Text("Retry") }
+                    }
+                }
+                is ScheduleUiState.Loaded -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                 item {
                     DashboardTabSelector(
                         selectedTab = selectedTab,
@@ -388,6 +412,7 @@ fun TeacherClassesScreen(
 
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
+        }
         }
     }
 
@@ -1561,4 +1586,169 @@ private fun ExtraClassDialog(
             }
         }
     )
+}
+
+@Composable
+fun OfflineSyncBanner(
+    queuedCount: Int,
+    isOnline: Boolean,
+    isSyncing: Boolean,
+    lastSyncMessage: String?,
+    onSyncNow: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bgColor: Color
+    val borderColor: Color
+    val iconTint: Color
+    val titleColor: Color
+    val subtitleColor: Color
+    val icon: ImageVector
+    val title: String
+    val subtitle: String
+    val showSyncButton: Boolean
+
+    when {
+        isSyncing -> {
+            bgColor = Color(0xFFEFF6FF)
+            borderColor = Color(0xFFBFDBFE)
+            iconTint = Color(0xFF1D4ED8)
+            titleColor = Color(0xFF1E40AF)
+            subtitleColor = Color(0xFF2563EB)
+            icon = Icons.Outlined.Sync
+            title = "Syncing attendance..."
+            subtitle = if (queuedCount > 0) "Uploading $queuedCount session(s) to server" else "Uploading offline data..."
+            showSyncButton = false
+        }
+        lastSyncMessage != null -> {
+            bgColor = Color(0xFFECFDF5)
+            borderColor = Color(0xFFA7F3D0)
+            iconTint = Color(0xFF047857)
+            titleColor = Color(0xFF065F46)
+            subtitleColor = Color(0xFF059669)
+            icon = Icons.Outlined.CloudDone
+            title = "Sync complete"
+            subtitle = lastSyncMessage
+            showSyncButton = false
+        }
+        !isOnline && queuedCount > 0 -> {
+            bgColor = Color(0xFFFEF3C7)
+            borderColor = Color(0xFFFDE68A)
+            iconTint = Color(0xFFB45309)
+            titleColor = Color(0xFF92400E)
+            subtitleColor = Color(0xFFB45309)
+            icon = Icons.Outlined.CloudOff
+            title = "Offline mode"
+            subtitle = "$queuedCount session(s) queued for upload"
+            showSyncButton = false
+        }
+        !isOnline -> {
+            bgColor = Color(0xFFF1F5F9)
+            borderColor = Color(0xFFE2E8F0)
+            iconTint = Color(0xFF64748B)
+            titleColor = Color(0xFF334155)
+            subtitleColor = Color(0xFF64748B)
+            icon = Icons.Outlined.CloudOff
+            title = "You are offline"
+            subtitle = "Roll calls will be queued and auto-synced"
+            showSyncButton = false
+        }
+        queuedCount > 0 -> {
+            bgColor = Color(0xFFEFF6FF)
+            borderColor = Color(0xFFBFDBFE)
+            iconTint = Color(0xFF1D4ED8)
+            titleColor = Color(0xFF1E40AF)
+            subtitleColor = Color(0xFF2563EB)
+            icon = Icons.Outlined.CloudQueue
+            title = "Pending sync"
+            subtitle = "$queuedCount session(s) ready to upload"
+            showSyncButton = true
+        }
+        else -> return
+    }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = bgColor,
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isSyncing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = iconTint
+                    )
+                } else {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = iconTint,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = title,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = titleColor
+                    )
+                    Text(
+                        text = subtitle,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = subtitleColor
+                    )
+                }
+            }
+
+            if (showSyncButton) {
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = onSyncNow,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1D4ED8),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Sync,
+                        contentDescription = "Sync",
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("Sync Now", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            } else if (!isOnline && queuedCount > 0) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFFFDE68A),
+                    modifier = Modifier.padding(start = 8.dp)
+                ) {
+                    Text(
+                        "Auto-sync on",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF92400E),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                    )
+                }
+            }
+        }
+    }
 }

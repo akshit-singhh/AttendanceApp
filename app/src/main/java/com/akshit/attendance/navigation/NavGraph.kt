@@ -193,20 +193,18 @@ fun AppNavGraph(app: AttendanceApp) {
             )
         }
         composable(Routes.STUDENT_NOTIFICATIONS) {
-            StudentScaffold(navController, factory) { vm ->
-                StudentNotificationsScreen(
-                    viewModel = vm,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
+            val studentViewModel: StudentViewModel = viewModel(factory = factory)
+            StudentNotificationsScreen(
+                viewModel = studentViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.STUDENT_STATISTICS) {
-            StudentScaffold(navController, factory) { vm ->
-                StudentStatisticsScreen(
-                    viewModel = vm,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
+            val studentViewModel: StudentViewModel = viewModel(factory = factory)
+            StudentStatisticsScreen(
+                viewModel = studentViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
         composable(Routes.STUDENT_HISTORY) { StudentScaffold(navController, factory) { StudentHistoryScreen(it) } }
         composable(Routes.STUDENT_LEAVES) { StudentScaffold(navController, factory) { StudentLeaveScreen(it) } }

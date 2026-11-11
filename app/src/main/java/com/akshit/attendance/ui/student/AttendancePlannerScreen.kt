@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -27,8 +26,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AttendancePlannerScreen(
-    viewModel: StudentViewModel,
-    onNavigateBack: (() -> Unit)? = null
+    viewModel: StudentViewModel
 ) {
     val plannerItems by viewModel.plannerItems.collectAsState()
     val dashboardState by viewModel.dashboard.collectAsState()
@@ -53,13 +51,6 @@ fun AttendancePlannerScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Attendance Planner", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextDark) },
-                navigationIcon = {
-                    if (onNavigateBack != null) {
-                        IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextDark)
-                        }
-                    }
-                },
                 actions = {
                     TextButton(onClick = { viewModel.resetPlanner() }) {
                         Text("Reset", color = AccentPurple, fontWeight = FontWeight.Bold)

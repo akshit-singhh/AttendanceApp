@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.akshit.attendance.data.model.*
 import com.akshit.attendance.data.network.TokenManager
+import com.akshit.attendance.data.offline.OfflineAttendanceManager
 import com.akshit.attendance.data.repository.TeacherRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -149,9 +150,11 @@ class TeacherViewModel(
                     emptySet()
                 }
 
+                val queuedOfferingIds = OfflineAttendanceManager.submittedOfferingIds.value
+
                 ScheduleUiState.Loaded(
                     classes = classes,
-                    submittedOfferingIds = submittedToday,
+                    submittedOfferingIds = submittedToday + queuedOfferingIds,
                     teacherName = teacherName
                 )
             } catch (e: Exception) {
@@ -257,7 +260,25 @@ class TeacherViewModel(
                 loadPendingClasses()
                 SubmitUiState.Done(response)
             } catch (e: Exception) {
-                SubmitUiState.Error(e.message ?: "Could not submit. Check your connection and retry.")
+                // If offline or network/server submission fails, queue in OfflineAttendanceManager
+                OfflineAttendanceManager.enqueue(payload)
+                val currentSched = _schedule.value
+                if (currentSched is ScheduleUiState.Loaded) {
+                    _schedule.value = currentSched.copy(
+                        submittedOfferingIds = currentSched.submittedOfferingIds + courseOfferingId
+                    )
+                }
+                SubmitUiState.Done(SyncResponse(status = "QUEUED", message = "Attendance saved offline. Will auto-sync when online."))
+            }
+        }
+    }
+
+    fun syncOfflineQueue() {
+        viewModelScope.launch {
+            val count = OfflineAttendanceManager.syncQueue(repo)
+            if (count > 0) {
+                loadSchedule()
+                loadPendingClasses()
             }
         }
     }

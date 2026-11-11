@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -36,8 +35,7 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StudentCalendarScreen(
-    viewModel: StudentViewModel,
-    onNavigateBack: (() -> Unit)? = null
+    viewModel: StudentViewModel
 ) {
     val dashboardState by viewModel.dashboard.collectAsState()
     val calendarState by viewModel.calendarState.collectAsState()
@@ -109,13 +107,6 @@ fun StudentCalendarScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Attendance Calendar", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextDark) },
-                navigationIcon = {
-                    if (onNavigateBack != null) {
-                        IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextDark)
-                        }
-                    }
-                },
                 actions = {
                     IconButton(onClick = { viewModel.loadCalendar(monthKey) }) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "Refresh", tint = TextDark)
