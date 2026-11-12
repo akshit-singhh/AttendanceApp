@@ -152,7 +152,7 @@ fun TeacherClassesScreen(
 
     val currentDate = remember { LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM")) }
     val deptText = profile?.department ?: profile?.school
-    val subtitleMeta = if (!deptText.isNullOrBlank()) "Faculty â€¢ $deptText" else "Faculty â€¢ $currentDate"
+    val subtitleMeta = if (!deptText.isNullOrBlank()) "Faculty \u2022 $deptText" else "Faculty \u2022 $currentDate"
 
     Scaffold(
         containerColor = com.akshit.attendance.ui.theme.SurfaceBg,
@@ -261,7 +261,7 @@ fun TeacherClassesScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (queuedCount > 0 || !isOnline || isSyncing || lastSyncMessage != null) {
+            if (queuedCount > 0 || isSyncing || lastSyncMessage != null) {
                 OfflineSyncBanner(
                     queuedCount = queuedCount,
                     isOnline = isOnline,
@@ -520,9 +520,9 @@ private fun formatTimeBlock(start: String, end: String): String {
         val formatter = DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH)
         val s = (safeParseLocalTime(start) ?: LocalTime.parse(start)).format(formatter)
         val e = (safeParseLocalTime(end) ?: LocalTime.parse(end)).format(formatter)
-        "$s â€“ $e"
+        "$s - $e"
     } catch (_: Exception) {
-        "$start â€“ $end"
+        "$start - $end"
     }
 }
 
@@ -800,7 +800,7 @@ private fun ClassCard(
                 } else if (state == ClassState.MISSED) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFFFF3E0)) {
-                        Text("Class Ended â€¢ Unmarked", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = Color(0xFFD84315), fontWeight = FontWeight.Bold)
+                        Text("Class Ended \u2022 Unmarked", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = Color(0xFFD84315), fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -826,7 +826,7 @@ private fun ClassCard(
                         ClassState.UPCOMING -> TextGray
                     }
                     Text(formatTimeBlock(course.start_time, course.end_time), style = MaterialTheme.typography.bodySmall, color = TextGray)
-                    Text("  â€¢  ", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                    Text("  \u2022  ", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
                     Text(statusText, style = MaterialTheme.typography.labelMedium, color = statusColor, fontWeight = FontWeight.SemiBold)
                 }
 
@@ -1190,7 +1190,7 @@ private fun PendingClassCard(
                     color = if (item.is_expiring_soon) Color(0xFFFEE2E2) else Color(0xFFFEF3C7)
                 ) {
                     Text(
-                        text = if (item.is_expiring_soon) "âš ï¸ ${item.days_remaining}d left" else "â³ ${item.days_remaining}d left",
+                        text = if (item.is_expiring_soon) "Expiring \u2022 ${item.days_remaining}d left" else "${item.days_remaining}d left",
                         color = if (item.is_expiring_soon) Color(0xFFB91C1C) else Color(0xFFB45309),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -1397,7 +1397,7 @@ private fun PostponeClassDialog(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "Sec: ${target.sectionName} â€¢ Date: ${target.date}",
+                            text = "Sec: ${target.sectionName} \u2022 Date: ${target.date}",
                             fontSize = 11.sp,
                             color = Color(0xFFB45309),
                             maxLines = 1,
@@ -1550,7 +1550,7 @@ private fun ExtraClassDialog(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            "${course.subject_code} â€¢ Section: ${course.section_name}",
+                                            "${course.subject_code} \u2022 Section: ${course.section_name}",
                                             fontSize = 11.sp,
                                             color = TextGray,
                                             maxLines = 1,
