@@ -84,7 +84,7 @@ data class StudentRosterResponse(
 )
 
 @Serializable
-enum class AttendanceStatus { PRESENT, ABSENT }
+enum class AttendanceStatus { PRESENT, ABSENT, LEAVE }
 
 @Serializable
 data class SyncRecordItem(

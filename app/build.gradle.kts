@@ -78,6 +78,9 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging-ktx")
     implementation("com.google.firebase:firebase-analytics-ktx")
 
+    // Lottie Animation for Compose
+    implementation("com.airbnb.android:lottie-compose:6.4.1")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
