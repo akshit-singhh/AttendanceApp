@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.Sync
 import com.akshit.attendance.data.offline.OfflineAttendanceManager
+import com.akshit.attendance.ui.components.TeacherClassCardSkeleton
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -65,6 +66,9 @@ private val SemanticRed = Color(0xFFE53935)
 private val SurfaceLight = Color(0xFFF5F7FA)
 private val TextGray = Color(0xFF545F71)
 
+// Temporary date override: set to 12 Nov 2026 (Thursday) as requested by user
+private val EffectiveDate: LocalDate = LocalDate.of(2026, 11, 12)
+
 enum class ClassState { SUBMITTED, ACTIVE, MISSED, UPCOMING }
 
 @Composable
@@ -95,6 +99,18 @@ fun TeacherClassesScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val isOnline by OfflineAttendanceManager.isOnline.collectAsState()
+    var wasOffline by remember { mutableStateOf(!isOnline) }
+    LaunchedEffect(isOnline) {
+        if (isOnline) {
+            viewModel.loadSchedule(isRefresh = wasOffline)
+            viewModel.loadPendingClasses()
+            wasOffline = false
+        } else {
+            wasOffline = true
         }
     }
 
@@ -150,9 +166,7 @@ fun TeacherClassesScreen(
         .uppercase()
         .ifEmpty { "FC" }
 
-    val currentDate = remember { LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM")) }
-    val deptText = profile?.department ?: profile?.school
-    val subtitleMeta = if (!deptText.isNullOrBlank()) "Faculty \u2022 $deptText" else "Faculty \u2022 $currentDate"
+    val currentDate = remember { EffectiveDate.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")) }
 
     Scaffold(
         containerColor = com.akshit.attendance.ui.theme.SurfaceBg,
@@ -189,8 +203,8 @@ fun TeacherClassesScreen(
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            subtitleMeta,
-                            fontSize = 11.sp,
+                            currentDate,
+                            fontSize = 12.sp,
                             color = TextGray,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
@@ -272,62 +286,33 @@ fun TeacherClassesScreen(
                 )
             }
 
-            when (val s = state) {
-                is ScheduleUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = PrimaryBlue)
-                }
-                is ScheduleUiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(s.message, color = MaterialTheme.colorScheme.error)
-                        Spacer(Modifier.height(8.dp))
-                        Button(onClick = { viewModel.loadSchedule() }) { Text("Retry") }
-                    }
-                }
-                is ScheduleUiState.Loaded -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                if (s.fromCache) {
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.History,
-                                contentDescription = null,
-                                tint = Color(0xFF64748B),
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                "Showing cached schedule from last session",
-                                fontSize = 11.sp,
-                                color = Color(0xFF64748B)
-                            )
-                        }
-                    }
-                }
+            val loadedSchedule = state as? ScheduleUiState.Loaded
+            val todayClassesCount = loadedSchedule?.classes?.size ?: 0
 
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
                 item {
                     DashboardTabSelector(
                         selectedTab = selectedTab,
                         onTabSelected = { selectedTab = it },
-                        todayCount = s.classes.size,
+                        todayCount = todayClassesCount,
                         pendingCount = pendingCount
                     )
                 }
 
                 if (selectedTab == 0) {
-                    val completedCount = s.classes.count { s.submittedOfferingIds.contains(it.course_offering_id) }
-                    item { DailyProgressSection(completedCount, s.classes.size) }
+                    val completedCount = loadedSchedule?.let { s ->
+                        s.classes.count { s.submittedOfferingIds.contains(it.course_offering_id) }
+                    } ?: 0
+
+                    item { DailyProgressSection(completedCount, todayClassesCount) }
 
                     item {
                         SectionHeader(
-                            count = s.classes.size,
+                            count = todayClassesCount,
                             onExtraClassClick = {
                                 scope.launch {
                                     allCourses = viewModel.getAllCourses()
@@ -337,39 +322,67 @@ fun TeacherClassesScreen(
                         )
                     }
 
-                    if (s.classes.isEmpty()) {
-                        item {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color.White,
-                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(24.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
+                    when (val s = state) {
+                        is ScheduleUiState.Loading -> {
+                            items(3) {
+                                TeacherClassCardSkeleton()
+                            }
+                        }
+                        is ScheduleUiState.Error -> {
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFFFF1F2),
+                                    border = BorderStroke(1.dp, Color(0xFFFECDD3)),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("No classes scheduled for today.", color = TextGray, fontSize = 14.sp)
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(s.message, color = SemanticRed, fontSize = 13.sp)
+                                        Spacer(Modifier.height(8.dp))
+                                        Button(onClick = { viewModel.loadSchedule() }) { Text("Retry") }
+                                    }
                                 }
                             }
                         }
-                    } else {
-                        items(s.classes) { course ->
-                            val isSubmitted = s.submittedOfferingIds.contains(course.course_offering_id)
-                            val currentState = determineClassState(currentTime, course.start_time, course.end_time, isSubmitted)
-                            ClassCard(
-                                course = course,
-                                state = currentState,
-                                onPostpone = { offId, dt, subName, secName ->
-                                    postponeTarget = PostponeTarget(offId, subName, secName, dt)
-                                },
-                                onStartRollCall = { offeringId ->
-                                    onStartRollCall(offeringId, null)
-                                },
-                                onViewDetails = { offeringId ->
-                                    onStartRollCall(offeringId, LocalDate.now().toString())
+                        is ScheduleUiState.Loaded -> {
+                            if (s.classes.isEmpty()) {
+                                item {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color.White,
+                                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(24.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text("No classes scheduled for today.", color = TextGray, fontSize = 14.sp)
+                                        }
+                                    }
                                 }
-                            )
+                            } else {
+                                items(s.classes) { course ->
+                                    val isSubmitted = s.submittedOfferingIds.contains(course.course_offering_id)
+                                    val currentState = determineClassState(currentTime, course.start_time, course.end_time, isSubmitted)
+                                    ClassCard(
+                                        course = course,
+                                        state = currentState,
+                                        onPostpone = { offId, dt, subName, secName ->
+                                            postponeTarget = PostponeTarget(offId, subName, secName, dt)
+                                        },
+                                        onStartRollCall = { offeringId ->
+                                            onStartRollCall(offeringId, null)
+                                        },
+                                        onViewDetails = { offeringId ->
+                                            onStartRollCall(offeringId, EffectiveDate.toString())
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 } else {
@@ -436,7 +449,6 @@ fun TeacherClassesScreen(
 
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
-        }
         }
     }
 
@@ -541,7 +553,7 @@ private fun getTimeUntilStart(now: LocalTime, startTimeStr: String): String {
 
 @Composable
 private fun TeacherProfileHeader(teacherName: String?) {
-    val currentDate = LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMM dd, yyyy"))
+    val currentDate = EffectiveDate.format(DateTimeFormatter.ofPattern("EEEE, MMM dd, yyyy"))
     val displayName = if (!teacherName.isNullOrBlank()) teacherName else "Faculty"
 
     Row(
@@ -785,49 +797,30 @@ private fun ClassCard(
                     Spacer(modifier = Modifier.width(6.dp))
 
                     when (state) {
-                        ClassState.SUBMITTED -> StatusBadge("Submitted", SemanticGreen, Color.White, Icons.Default.CheckCircle)
-                        ClassState.ACTIVE -> StatusBadge("Action Req", SemanticYellow, Color(0xFF424242), Icons.Default.AssignmentLate)
-                        ClassState.MISSED -> StatusBadge("Overdue", Color(0xFFFFEBEE), SemanticRed, Icons.Default.Warning)
+                        ClassState.SUBMITTED -> StatusBadge("Submitted", Color(0xFFDCFCE7), Color(0xFF166534), Icons.Default.CheckCircle)
+                        ClassState.ACTIVE -> StatusBadge("In Progress", Color(0xFFEFF6FF), PrimaryBlue, Icons.Default.Schedule)
+                        ClassState.MISSED -> StatusBadge("Unmarked", Color(0xFFFFF7ED), Color(0xFFC2410C), Icons.Default.Schedule)
                         ClassState.UPCOMING -> StatusBadge("Upcoming", SurfaceLight, TextGray, Icons.Default.Schedule)
                     }
                 }
 
-                if (state == ClassState.ACTIVE) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(shape = RoundedCornerShape(6.dp), color = SemanticRed.copy(alpha = 0.1f)) {
-                        Text("Now Active", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = SemanticRed, fontWeight = FontWeight.Bold)
-                    }
-                } else if (state == ClassState.MISSED) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFFFF3E0)) {
-                        Text("Class Ended \u2022 Unmarked", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = Color(0xFFD84315), fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(course.subject_name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Time & Status Text
+                // Time Row
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp), tint = TextGray)
                     Spacer(modifier = Modifier.width(6.dp))
-
-                    val statusText = when (state) {
-                        ClassState.SUBMITTED -> "Completed"
-                        ClassState.ACTIVE -> "In Progress"
-                        ClassState.MISSED -> "Ended (Not Marked)"
-                        ClassState.UPCOMING -> getTimeUntilStart(LocalTime.now(), course.start_time)
-                    }
-                    val statusColor = when (state) {
-                        ClassState.SUBMITTED -> SemanticGreen
-                        ClassState.ACTIVE -> Color(0xFF8D6E63) // Brownish for active progress
-                        ClassState.MISSED -> SemanticRed
-                        ClassState.UPCOMING -> TextGray
-                    }
                     Text(formatTimeBlock(course.start_time, course.end_time), style = MaterialTheme.typography.bodySmall, color = TextGray)
-                    Text("  \u2022  ", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
-                    Text(statusText, style = MaterialTheme.typography.labelMedium, color = statusColor, fontWeight = FontWeight.SemiBold)
+
+                    if (state == ClassState.UPCOMING) {
+                        val timeUntil = getTimeUntilStart(LocalTime.now(), course.start_time)
+                        if (timeUntil.isNotBlank()) {
+                            Text("  \u2022  ", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                            Text(timeUntil, style = MaterialTheme.typography.labelMedium, color = TextGray, fontWeight = FontWeight.Medium)
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -867,7 +860,7 @@ private fun ClassCard(
                             }
                         }
                     }
-                    ClassState.ACTIVE, ClassState.MISSED -> {
+                    ClassState.ACTIVE, ClassState.MISSED, ClassState.UPCOMING -> {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -881,13 +874,13 @@ private fun ClassCard(
                                 shape = RoundedCornerShape(8.dp)
                             ) {
                                 Icon(
-                                    if (state == ClassState.MISSED) Icons.Default.EditNote else Icons.Default.PersonSearch,
+                                    if (state == ClassState.ACTIVE) Icons.Default.PersonSearch else Icons.Default.EditNote,
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    if (state == ClassState.MISSED) "Mark Attendance" else "Start Roll Call",
+                                    if (state == ClassState.ACTIVE) "Start Roll Call" else "Mark Attendance",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
@@ -899,7 +892,7 @@ private fun ClassCard(
                                 onClick = {
                                     onPostpone(
                                         course.course_offering_id,
-                                        LocalDate.now().toString(),
+                                        EffectiveDate.toString(),
                                         course.subject_name,
                                         course.section_name
                                     )
@@ -911,40 +904,6 @@ private fun ClassCard(
                                 shape = RoundedCornerShape(8.dp)
                             ) {
                                 Icon(Icons.Outlined.EventBusy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    "Postpone",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                        }
-                    }
-                    ClassState.UPCOMING -> {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.PeopleAlt, contentDescription = null, modifier = Modifier.size(18.dp), tint = TextGray)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Scheduled Session", style = MaterialTheme.typography.labelMedium, color = TextGray)
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    onPostpone(
-                                        course.course_offering_id,
-                                        LocalDate.now().toString(),
-                                        course.subject_name,
-                                        course.section_name
-                                    )
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB45309)),
-                                border = BorderStroke(1.dp, Color(0xFFFDE68A)),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                modifier = Modifier.height(34.dp)
-                            ) {
-                                Icon(Icons.Outlined.EventBusy, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     "Postpone",
@@ -1479,7 +1438,7 @@ private fun ExtraClassDialog(
     var selectedCourseId by remember(courses) {
         mutableStateOf(courses.firstOrNull()?.course_offering_id ?: 0)
     }
-    var selectedDate by remember { mutableStateOf(LocalDate.now().toString()) }
+    var selectedDate by remember { mutableStateOf(EffectiveDate.toString()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,

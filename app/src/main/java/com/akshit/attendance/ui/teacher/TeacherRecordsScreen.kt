@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,11 +25,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshit.attendance.data.model.AttendanceStatus
-import com.akshit.attendance.data.model.CorrectionRequestCreate
 import com.akshit.attendance.data.model.SessionHistoryResponse
 import com.akshit.attendance.data.model.StudentRosterResponse
+import com.akshit.attendance.data.offline.OfflineAttendanceManager
+import com.akshit.attendance.data.offline.TeacherCacheManager
 import com.akshit.attendance.data.repository.TeacherRepository
 import com.akshit.attendance.ui.components.AppTopBar
+import com.akshit.attendance.ui.components.TeacherSessionCardSkeleton
+import com.akshit.attendance.ui.components.TeacherRosterStudentCardSkeleton
 import com.akshit.attendance.ui.theme.*
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -40,6 +44,8 @@ private val GreenText = Color(0xFF16A34A)
 private val GreenBg = Color(0xFFDCFCE7)
 private val RedText = Color(0xFFDC2626)
 private val RedBg = Color(0xFFFEE2E2)
+private val AmberText = Color(0xFFD97706)
+private val AmberBg = Color(0xFFFEF3C7)
 private val IndigoText = Color(0xFF4338CA)
 private val IndigoBg = Color(0xFFEEF2FF)
 
@@ -63,7 +69,13 @@ private fun formatSessionDateCompact(dateStr: String): String {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TeacherRecordsScreen(repo: TeacherRepository) {
+fun TeacherRecordsScreen(
+    repo: TeacherRepository,
+    onEditSession: (courseOfferingId: Int, sessionDate: String) -> Unit = { _, _ -> },
+    onOpenProfile: () -> Unit = {},
+    onLogout: () -> Unit = {},
+    onNavigateToNotifications: () -> Unit = {}
+) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -80,46 +92,134 @@ fun TeacherRecordsScreen(repo: TeacherRepository) {
     var rosterFilter by remember { mutableStateOf("ALL") } // ALL, PRESENT, ABSENT
     var studentSearch by remember { mutableStateOf("") }
 
-    // Correction Request State
-    var correctingStudent by remember { mutableStateOf<StudentRosterResponse?>(null) }
-    var suggestedStatus by remember { mutableStateOf(AttendanceStatus.PRESENT) }
-    var correctionReason by remember { mutableStateOf("") }
-    var submittingCorrection by remember { mutableStateOf(false) }
-    var correctionError by remember { mutableStateOf<String?>(null) }
+    val cachedProfile = remember { TeacherCacheManager.loadProfile() }
+    val userInitials = remember(cachedProfile) {
+        val rawName = cachedProfile?.full_name?.takeIf { it.isNotBlank() }
+        if (rawName == null) null
+        else {
+            val clean = rawName
+                .replace("Prof.", "", ignoreCase = true)
+                .replace("Prof", "", ignoreCase = true)
+                .replace("Dr.", "", ignoreCase = true)
+                .replace("Dr", "", ignoreCase = true)
+                .trim()
+            clean.split(" ")
+                .mapNotNull { it.firstOrNull()?.toString() }
+                .take(2)
+                .joinToString("")
+                .uppercase()
+                .ifEmpty { "FC" }
+        }
+    }
+
+    val isOnline by OfflineAttendanceManager.isOnline.collectAsState()
+    var isHistoryOfflineNotice by remember { mutableStateOf(false) }
+    var wasOffline by remember { mutableStateOf(!isOnline) }
 
     // Load History
-    val loadHistory: () -> Unit = {
+    val loadHistory: (Boolean) -> Unit = { forceSkeleton ->
         scope.launch {
             historyLoading = true
             historyError = null
+
+            // ── Step 1: Instant cached history if available (unless forcing skeleton on refresh) ──
+            if (!forceSkeleton) {
+                val cachedHistory = TeacherCacheManager.loadHistory()
+                if (cachedHistory != null && cachedHistory.isNotEmpty()) {
+                    history = cachedHistory
+                    historyLoading = false
+                }
+            }
+
+            // ── Step 2: Fresh history from network ──
             try {
-                history = repo.getHistory()
+                val list = repo.getHistory()
+                history = list
+                TeacherCacheManager.saveHistory(list)
+                historyError = null
+                isHistoryOfflineNotice = false
+                OfflineAttendanceManager.markOnline()
             } catch (e: Exception) {
-                historyError = e.message ?: "Failed to load session history."
+                val isNetworkErr = TeacherCacheManager.isNetworkError(e.message) || !OfflineAttendanceManager.isOnline.value
+                if (isNetworkErr) {
+                    OfflineAttendanceManager.markOffline()
+                    isHistoryOfflineNotice = true
+                }
+                if (history.isEmpty()) {
+                    historyError = if (isNetworkErr) {
+                        "No internet connection. Please check your network to load past sessions."
+                    } else {
+                        e.message ?: "Failed to load session history."
+                    }
+                }
             } finally {
                 historyLoading = false
             }
         }
     }
 
-    LaunchedEffect(Unit) {
-        loadHistory()
+    // Load Roster for Selected Session
+    val loadRosterForSession: (SessionHistoryResponse, Boolean) -> Unit = { session, forceSkeleton ->
+        scope.launch {
+            rosterLoading = true
+            rosterError = null
+            rosterFilter = "ALL"
+            studentSearch = ""
+
+            // ── Step 1: Instant cached roster if available (unless forcing skeleton on refresh) ──
+            if (!forceSkeleton) {
+                val cachedRoster = TeacherCacheManager.loadRoster(session.course_offering_id)
+                if (cachedRoster != null && cachedRoster.isNotEmpty()) {
+                    roster = cachedRoster
+                    rosterLoading = false
+                }
+            }
+            try {
+                val fresh = repo.getRoster(session.course_offering_id, date = session.date)
+                roster = fresh
+                TeacherCacheManager.saveRoster(session.course_offering_id, fresh)
+                rosterError = null
+                OfflineAttendanceManager.markOnline()
+            } catch (e: Exception) {
+                val isNetworkErr = TeacherCacheManager.isNetworkError(e.message) || !OfflineAttendanceManager.isOnline.value
+                if (isNetworkErr) {
+                    OfflineAttendanceManager.markOffline()
+                }
+                if (roster.isEmpty()) {
+                    rosterError = if (isNetworkErr) {
+                        "No internet connection. Unable to load student roster."
+                    } else {
+                        e.message ?: "Failed to load class roster for this session."
+                    }
+                }
+            } finally {
+                rosterLoading = false
+            }
+        }
     }
 
-    // Load Roster for Selected Session
+    // Auto-refresh with skeleton animation when internet connectivity is restored
+    LaunchedEffect(isOnline) {
+        if (isOnline) {
+            val animateSkeleton = wasOffline
+            loadHistory(animateSkeleton)
+            val current = selectedSession
+            if (current != null) {
+                loadRosterForSession(current, animateSkeleton)
+            }
+            wasOffline = false
+        } else {
+            wasOffline = true
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        loadHistory(false)
+    }
+
     LaunchedEffect(selectedSession) {
         val session = selectedSession ?: return@LaunchedEffect
-        rosterLoading = true
-        rosterError = null
-        rosterFilter = "ALL"
-        studentSearch = ""
-        try {
-            roster = repo.getRoster(session.course_offering_id, date = session.date)
-        } catch (e: Exception) {
-            rosterError = e.message ?: "Failed to load class roster for this session."
-        } finally {
-            rosterLoading = false
-        }
+        loadRosterForSession(session, false)
     }
 
     // Intercept Back Press when viewing a session
@@ -167,7 +267,10 @@ fun TeacherRecordsScreen(repo: TeacherRepository) {
             if (selectedSession == null) {
                 AppTopBar(
                     title = "Attendance Records",
-                    onLogout = {}
+                    onLogout = onLogout,
+                    onOpenProfile = onOpenProfile,
+                    onNotificationsClick = onNavigateToNotifications,
+                    userInitials = userInitials
                 )
             } else {
                 TopAppBar(
@@ -249,7 +352,7 @@ fun TeacherRecordsScreen(repo: TeacherRepository) {
                                             color = TextDark
                                         )
                                         Text(
-                                            "Select a class session to review attendance and request corrections",
+                                            "Select a class session to review or edit attendance",
                                             fontSize = 11.sp,
                                             color = TextGray
                                         )
@@ -278,23 +381,77 @@ fun TeacherRecordsScreen(repo: TeacherRepository) {
                         }
                     }
 
-                    if (historyLoading) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 48.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(color = PrimaryBlue, strokeWidth = 2.5.dp)
-                            }
-                        }
-                    } else if (historyError != null) {
+                    // Warning banner if offline but cached sessions exist
+                    if (isHistoryOfflineNotice && history.isNotEmpty()) {
                         item {
                             Surface(
-                                color = RedBg,
+                                color = Color(0xFFFFFBEB),
                                 shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, RedText.copy(alpha = 0.3f)),
+                                border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.CloudOff,
+                                            contentDescription = null,
+                                            tint = Color(0xFFB45309),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                "No Internet Connection",
+                                                color = Color(0xFF92400E),
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                "Showing saved sessions. Reconnect to get latest data.",
+                                                color = Color(0xFFB45309),
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+                                    OutlinedButton(
+                                        onClick = { loadHistory(true) },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF92400E)),
+                                        border = BorderStroke(1.dp, Color(0xFFFCD34D)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(32.dp)
+                                    ) {
+                                        Text("Retry", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (historyLoading) {
+                        items(5) {
+                            TeacherSessionCardSkeleton()
+                        }
+                    } else if (historyError != null && history.isEmpty()) {
+                        item {
+                            val isOffline = TeacherCacheManager.isNetworkError(historyError) || !isOnline
+                            val bg = if (isOffline) AmberBg else RedBg
+                            val border = if (isOffline) AmberText.copy(alpha = 0.3f) else RedText.copy(alpha = 0.3f)
+                            val txt = if (isOffline) AmberText else RedText
+                            val icon = if (isOffline) Icons.Outlined.CloudOff else Icons.Outlined.ErrorOutline
+                            val message = if (isOffline) "No internet connection. Please check your network to load past sessions." else historyError!!
+
+                            Surface(
+                                color = bg,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, border),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
@@ -302,10 +459,10 @@ fun TeacherRecordsScreen(repo: TeacherRepository) {
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = RedText)
-                                    Text(historyError!!, color = RedText, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                                    TextButton(onClick = loadHistory) {
-                                        Text("Retry", fontWeight = FontWeight.Bold, color = RedText)
+                                    Icon(icon, contentDescription = null, tint = txt, modifier = Modifier.size(20.dp))
+                                    Text(message, color = txt, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                                    TextButton(onClick = { loadHistory(true) }) {
+                                        Text("Retry", fontWeight = FontWeight.Bold, color = txt)
                                     }
                                 }
                             }
@@ -434,6 +591,21 @@ fun TeacherRecordsScreen(repo: TeacherRepository) {
                                         modifier = Modifier.weight(1f)
                                     )
                                 }
+
+                                Spacer(Modifier.height(14.dp))
+
+                                Button(
+                                    onClick = {
+                                        onEditSession(currentSession.course_offering_id, currentSession.date)
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Edit Attendance", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
                             }
                         }
                     }
@@ -493,30 +665,40 @@ fun TeacherRecordsScreen(repo: TeacherRepository) {
                     }
 
                     if (rosterLoading) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 48.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(color = PrimaryBlue, strokeWidth = 2.5.dp)
-                            }
+                        items(6) {
+                            TeacherRosterStudentCardSkeleton()
                         }
-                    } else if (rosterError != null) {
+                    } else if (rosterError != null && roster.isEmpty()) {
                         item {
+                            val isOffline = TeacherCacheManager.isNetworkError(rosterError) || !isOnline
+                            val bg = if (isOffline) AmberBg else RedBg
+                            val border = if (isOffline) AmberText.copy(alpha = 0.3f) else RedText.copy(alpha = 0.3f)
+                            val txt = if (isOffline) AmberText else RedText
+                            val icon = if (isOffline) Icons.Outlined.CloudOff else Icons.Outlined.ErrorOutline
+                            val message = if (isOffline) "No internet connection. Connect to view full session roster." else rosterError!!
                             Surface(
-                                color = RedBg,
+                                color = bg,
                                 shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, RedText.copy(alpha = 0.3f)),
+                                border = BorderStroke(1.dp, border),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    rosterError!!,
-                                    color = RedText,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(14.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(icon, contentDescription = null, tint = txt, modifier = Modifier.size(20.dp))
+                                    Text(
+                                        message,
+                                        color = txt,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    TextButton(onClick = { loadRosterForSession(currentSession, true) }) {
+                                        Text("Retry", fontWeight = FontWeight.Bold, color = txt)
+                                    }
+                                }
                             }
                         }
                     } else if (filteredRoster.isEmpty()) {
@@ -541,173 +723,11 @@ fun TeacherRecordsScreen(repo: TeacherRepository) {
                     } else {
                         items(filteredRoster, key = { it.student_id }) { student ->
                             RosterStudentCard(
-                                student = student,
-                                onRequestCorrection = {
-                                    correctingStudent = student
-                                    suggestedStatus = if (student.status == AttendanceStatus.PRESENT) AttendanceStatus.ABSENT else AttendanceStatus.PRESENT
-                                    correctionReason = ""
-                                    correctionError = null
-                                }
+                                student = student
                             )
                         }
                     }
                 }
-            }
-
-            // ==========================================
-            // Correction Request Bottom Sheet / Dialog
-            // ==========================================
-            if (correctingStudent != null) {
-                val student = correctingStudent!!
-                AlertDialog(
-                    onDismissRequest = {
-                        if (!submittingCorrection) correctingStudent = null
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    title = {
-                        Text(
-                            "Request Attendance Correction",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextDark
-                        )
-                    },
-                    text = {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            // Student Info Card
-                            Surface(
-                                color = Color(0xFFF8FAFC),
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, BorderSubtle),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(student.full_name, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextDark)
-                                        Text("Roll: ${student.roll_number}", fontSize = 11.sp, color = TextGray)
-                                    }
-                                    StatusPill(status = student.status)
-                                }
-                            }
-
-                            Text(
-                                "Suggest Changed Status:",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextDark
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                StatusOptionButton(
-                                    label = "Mark Present",
-                                    icon = Icons.Outlined.CheckCircle,
-                                    selected = suggestedStatus == AttendanceStatus.PRESENT,
-                                    selectedColor = GreenText,
-                                    onClick = { suggestedStatus = AttendanceStatus.PRESENT },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                StatusOptionButton(
-                                    label = "Mark Absent",
-                                    icon = Icons.Outlined.Cancel,
-                                    selected = suggestedStatus == AttendanceStatus.ABSENT,
-                                    selectedColor = RedText,
-                                    onClick = { suggestedStatus = AttendanceStatus.ABSENT },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-
-                            // Reason Input
-                            OutlinedTextField(
-                                value = correctionReason,
-                                onValueChange = {
-                                    correctionReason = it
-                                    correctionError = null
-                                },
-                                label = { Text("Reason (Required for HOD approval)") },
-                                placeholder = { Text("e.g. Biometric scanner issue / present in class", fontSize = 12.sp) },
-                                minLines = 3,
-                                maxLines = 4,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    unfocusedBorderColor = BorderSubtle,
-                                    focusedBorderColor = PrimaryBlue
-                                )
-                            )
-
-                            if (correctionError != null) {
-                                Text(
-                                    correctionError!!,
-                                    color = RedText,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                val recId = student.record_id
-                                if (recId == null) {
-                                    correctionError = "Cannot correct: Attendance record ID is not available for this record."
-                                    return@Button
-                                }
-                                if (correctionReason.trim().isBlank()) {
-                                    correctionError = "Please specify the reason for this correction."
-                                    return@Button
-                                }
-                                submittingCorrection = true
-                                correctionError = null
-                                scope.launch {
-                                    try {
-                                        val res = repo.submitCorrectionRequest(
-                                            CorrectionRequestCreate(
-                                                attendance_record_id = recId,
-                                                suggested_status = suggestedStatus,
-                                                reason = correctionReason.trim()
-                                            )
-                                        )
-                                        snackbarHostState.showSnackbar(res.message ?: "Correction request submitted for HOD approval.")
-                                        correctingStudent = null
-                                        correctionReason = ""
-                                    } catch (e: Exception) {
-                                        correctionError = e.message ?: "Could not submit correction request."
-                                    } finally {
-                                        submittingCorrection = false
-                                    }
-                                }
-                            },
-                            enabled = !submittingCorrection && correctionReason.isNotBlank(),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
-                        ) {
-                            if (submittingCorrection) {
-                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text("Submit for HOD Approval", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(
-                            onClick = { correctingStudent = null },
-                            enabled = !submittingCorrection
-                        ) {
-                            Text("Cancel", color = TextGray)
-                        }
-                    }
-                )
             }
         }
     }
@@ -821,8 +841,7 @@ private fun MetricChip(
 
 @Composable
 private fun RosterStudentCard(
-    student: StudentRosterResponse,
-    onRequestCorrection: () -> Unit
+    student: StudentRosterResponse
 ) {
     Surface(
         color = Color.White,
@@ -854,24 +873,7 @@ private fun RosterStudentCard(
 
             Spacer(Modifier.width(8.dp))
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                StatusPill(status = student.status)
-
-                IconButton(
-                    onClick = onRequestCorrection,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        Icons.Outlined.EditNote,
-                        contentDescription = "Request Correction",
-                        tint = PrimaryBlue,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
+            StatusPill(status = student.status)
         }
     }
 }
@@ -881,6 +883,7 @@ private fun StatusPill(status: AttendanceStatus?) {
     val (bg, txt, icon, label) = when (status) {
         AttendanceStatus.PRESENT -> Quadruple(GreenBg, GreenText, Icons.Outlined.CheckCircle, "Present")
         AttendanceStatus.ABSENT -> Quadruple(RedBg, RedText, Icons.Outlined.Cancel, "Absent")
+        AttendanceStatus.LEAVE -> Quadruple(AmberBg, AmberText, Icons.Outlined.EventBusy, "On Leave")
         else -> Quadruple(Color(0xFFF1F5F9), Color(0xFF64748B), Icons.AutoMirrored.Outlined.HelpOutline, "Unrecorded")
     }
 
@@ -900,43 +903,3 @@ private fun StatusPill(status: AttendanceStatus?) {
 }
 
 private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
-
-@Composable
-private fun StatusOptionButton(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    selected: Boolean,
-    selectedColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        color = if (selected) selectedColor.copy(alpha = 0.1f) else Color.White,
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(
-            width = if (selected) 1.5.dp else 1.dp,
-            color = if (selected) selectedColor else BorderSubtle
-        ),
-        modifier = modifier.clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = if (selected) selectedColor else TextGray,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                label,
-                fontSize = 11.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = if (selected) selectedColor else TextDark
-            )
-        }
-    }
-}

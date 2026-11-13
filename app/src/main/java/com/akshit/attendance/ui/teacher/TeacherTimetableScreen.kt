@@ -30,7 +30,10 @@ import androidx.compose.ui.unit.sp
 import com.akshit.attendance.data.model.TeacherTimetableResponse
 import com.akshit.attendance.data.model.TeachingWorkloadItem
 import com.akshit.attendance.data.model.TimetableSlotItem
+import com.akshit.attendance.data.offline.OfflineAttendanceManager
+import com.akshit.attendance.data.offline.TeacherCacheManager
 import com.akshit.attendance.ui.components.AppTopBar
+import com.akshit.attendance.ui.components.ScheduleCardSkeleton
 import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.delay
@@ -38,6 +41,9 @@ import kotlinx.coroutines.delay
 // --- Theme Colors matching the official GBU Timetable portal web design ---
 private val NavyHeader = Color(0xFF1A2758)
 private val NavyDark = Color(0xFF0F1A3C)
+
+// Temporary date override: set to 12 Nov 2026 (Thursday) as requested by user
+private val EffectiveDate: LocalDate = LocalDate.of(2026, 11, 12)
 private val LectureBg = Color(0xFFEFF6FF)
 private val LectureBorder = Color(0xFFBFDBFE)
 private val LectureText = Color(0xFF1E40AF)
@@ -52,6 +58,7 @@ private val ActiveGreen = Color(0xFF16A34A)
 private val SurfaceBg = Color(0xFFF8FAFC)
 private val TextDark = Color(0xFF1E293B)
 private val TextMuted = Color(0xFF64748B)
+private val TextGray = Color(0xFF545F71)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +70,36 @@ fun TeacherTimetableScreen(
     onNavigateToNotifications: () -> Unit = {}
 ) {
     val state by viewModel.timetable.collectAsState()
+    val isOnline by OfflineAttendanceManager.isOnline.collectAsState()
+    var wasOffline by remember { mutableStateOf(!isOnline) }
+    LaunchedEffect(isOnline) {
+        if (isOnline) {
+            viewModel.loadTimetable(isRefresh = wasOffline)
+            wasOffline = false
+        } else {
+            wasOffline = true
+        }
+    }
+
+    val cachedProfile = remember { TeacherCacheManager.loadProfile() }
+    val userInitials = remember(cachedProfile) {
+        val rawName = cachedProfile?.full_name?.takeIf { it.isNotBlank() }
+        if (rawName == null) null
+        else {
+            val clean = rawName
+                .replace("Prof.", "", ignoreCase = true)
+                .replace("Prof", "", ignoreCase = true)
+                .replace("Dr.", "", ignoreCase = true)
+                .replace("Dr", "", ignoreCase = true)
+                .trim()
+            clean.split(" ")
+                .mapNotNull { it.firstOrNull()?.toString() }
+                .take(2)
+                .joinToString("")
+                .uppercase()
+                .ifEmpty { "FC" }
+        }
+    }
 
     Scaffold(
         containerColor = SurfaceBg,
@@ -72,7 +109,8 @@ fun TeacherTimetableScreen(
                 title = "Timetable & Workload",
                 onLogout = onLogout,
                 onOpenProfile = onOpenProfile,
-                onNotificationsClick = onNavigateToNotifications
+                onNotificationsClick = onNavigateToNotifications,
+                userInitials = userInitials
             )
         }
     ) { padding ->
@@ -83,40 +121,71 @@ fun TeacherTimetableScreen(
         ) {
             when (val current = state) {
                 is TimetableUiState.Loading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        CircularProgressIndicator(color = NavyHeader)
+                        repeat(4) {
+                            ScheduleCardSkeleton()
+                        }
                     }
                 }
                 is TimetableUiState.Error -> {
+                    val isOffline = TeacherCacheManager.isNetworkError(current.message)
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(24.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Outlined.ErrorOutline,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = current.message,
-                                color = TextDark,
-                                textAlign = TextAlign.Center,
-                                fontSize = 14.sp
-                            )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isOffline) Color(0xFFFEF3C7) else MaterialTheme.colorScheme.error.copy(alpha = 0.1f),
+                                modifier = Modifier.size(64.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (isOffline) Icons.Outlined.CloudOff else Icons.Outlined.ErrorOutline,
+                                        contentDescription = null,
+                                        tint = if (isOffline) Color(0xFFD97706) else MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
                             Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = if (isOffline) "No Internet Connection" else "Unable to Load Timetable",
+                                color = TextDark,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = if (isOffline)
+                                    "Please check your network settings and try again."
+                                else
+                                    current.message,
+                                color = TextGray,
+                                textAlign = TextAlign.Center,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp
+                            )
+                            Spacer(modifier = Modifier.height(20.dp))
                             Button(
                                 onClick = { viewModel.loadTimetable() },
-                                colors = ButtonDefaults.buttonColors(containerColor = NavyHeader)
+                                colors = ButtonDefaults.buttonColors(containerColor = NavyHeader),
+                                shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("Retry")
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Retry", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -141,13 +210,13 @@ private fun TimetableContent(
     onRefresh: () -> Unit
 ) {
     var currentTime by remember { mutableStateOf(LocalTime.now()) }
-    var currentDate by remember { mutableStateOf(LocalDate.now()) }
+    var currentDate by remember { mutableStateOf(EffectiveDate) }
 
     LaunchedEffect(Unit) {
         while (true) {
             delay(10_000L) // Refresh every 10 seconds so the yellow rectangle moves dynamically with time
             currentTime = LocalTime.now()
-            currentDate = LocalDate.now()
+            currentDate = EffectiveDate
         }
     }
 
