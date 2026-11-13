@@ -397,8 +397,6 @@ fun TeacherClassesScreen(
                         }
                     }
                 } else {
-                    item { PendingPolicyCard() }
-
                     when (val pState = pendingState) {
                         is PendingUiState.Loading -> item {
                             Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -1048,40 +1046,6 @@ private fun DashboardTabSelector(
     }
 }
 
-@Composable
-private fun PendingPolicyCard() {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFFFEF3C7),
-        border = BorderStroke(1.dp, Color(0xFFFDE68A)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-            Icon(
-                imageVector = Icons.Outlined.History,
-                contentDescription = null,
-                tint = Color(0xFFD97706),
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column {
-                Text(
-                    text = "15-Day Attendance Grace Window",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    color = Color(0xFF92400E)
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Classes conducted within the last 15 days can be marked here anytime. After 15 days, retroactive marking is permanently locked.",
-                    fontSize = 11.sp,
-                    color = Color(0xFF78350F),
-                    lineHeight = 15.sp
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun AllCaughtUpCard() {

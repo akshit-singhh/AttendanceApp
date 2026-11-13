@@ -201,9 +201,10 @@ class TeacherViewModel(
                 cached.forEach { courseInfoCache[it.course_offering_id] = it }
                 if (cached.isNotEmpty()) {
                     val queuedIds = OfflineAttendanceManager.submittedOfferingIds.value
+                    val persistentSubmitted = TeacherCacheManager.getSubmittedOfferingIdsForDate(todayStr)
                     _schedule.value = ScheduleUiState.Loaded(
                         classes = cached,
-                        submittedOfferingIds = queuedIds,
+                        submittedOfferingIds = persistentSubmitted + queuedIds,
                         teacherName = teacherName,
                         fromCache = !TeacherCacheManager.isScheduleCacheForToday()
                     )
@@ -218,16 +219,23 @@ class TeacherViewModel(
                 val classes = repo.getSchedule(null, targetDay)
                 classes.forEach { courseInfoCache[it.course_offering_id] = it }
                 val submittedToday = try {
-                    repo.getHistory()
-                        .filter { it.date == todayStr }
+                    val history = repo.getHistory()
+                    TeacherCacheManager.saveHistory(history)
+                    history.forEach {
+                        TeacherCacheManager.recordSubmittedClass(it.course_offering_id, it.date)
+                    }
+                    history.filter { it.date == todayStr }
                         .map { it.course_offering_id }
                         .toSet()
-                } catch (_: Exception) { emptySet() }
+                } catch (_: Exception) {
+                    TeacherCacheManager.getSubmittedOfferingIdsForDate(todayStr)
+                }
 
                 val queuedIds = OfflineAttendanceManager.submittedOfferingIds.value
+                val persistentSubmitted = TeacherCacheManager.getSubmittedOfferingIdsForDate(todayStr)
                 _schedule.value = ScheduleUiState.Loaded(
                     classes = classes,
-                    submittedOfferingIds = submittedToday + queuedIds,
+                    submittedOfferingIds = submittedToday + persistentSubmitted + queuedIds,
                     teacherName = teacherName,
                     fromCache = false
                 )
@@ -430,6 +438,12 @@ class TeacherViewModel(
             )
             _submit.value = try {
                 val response = repo.submitAttendance(payload)
+                TeacherCacheManager.recordSubmittedClass(courseOfferingId, targetDate)
+                val updatedRoster = current.roster.map { student ->
+                    val finalStatus = current.marks[student.student_id] ?: defaultUnmarkedTo
+                    student.copy(status = finalStatus)
+                }
+                TeacherCacheManager.saveRoster(courseOfferingId, updatedRoster)
                 val currentSched = _schedule.value
                 if (currentSched is ScheduleUiState.Loaded) {
                     _schedule.value = currentSched.copy(
@@ -440,6 +454,12 @@ class TeacherViewModel(
                 SubmitUiState.Done(response)
             } catch (e: Exception) {
                 // If offline or network/server submission fails, queue in OfflineAttendanceManager
+                TeacherCacheManager.recordSubmittedClass(courseOfferingId, targetDate)
+                val updatedRoster = current.roster.map { student ->
+                    val finalStatus = current.marks[student.student_id] ?: defaultUnmarkedTo
+                    student.copy(status = finalStatus)
+                }
+                TeacherCacheManager.saveRoster(courseOfferingId, updatedRoster)
                 OfflineAttendanceManager.enqueue(payload)
                 val currentSched = _schedule.value
                 if (currentSched is ScheduleUiState.Loaded) {
