@@ -236,7 +236,15 @@ fun AppNavGraph(app: AttendanceApp) {
             val offeringId = backStackEntry.arguments?.getInt("courseOfferingId") ?: 0
             val teacherViewModel: TeacherViewModel = viewModel(factory = factory)
             val sessionDate = backStackEntry.arguments?.getString("sessionDate")
-            TeacherRollCallScreen(teacherViewModel, offeringId, sessionDate) { navController.popBackStack() }
+            TeacherRollCallScreen(
+                viewModel = teacherViewModel,
+                courseOfferingId = offeringId,
+                sessionDate = sessionDate,
+                onNavigateBack = { navController.popBackStack() },
+                onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                onNavigateToNotifications = { navController.navigate(Routes.TEACHER_NOTIFICATIONS) },
+                onSubmitted = { navController.popBackStack() }
+            )
         }
 
         composable(Routes.TEACHER_TIMETABLE) {
@@ -252,7 +260,19 @@ fun AppNavGraph(app: AttendanceApp) {
                 )
             }
         }
-        composable(Routes.TEACHER_RECORDS) { TeacherScaffold(navController, factory) { TeacherRecordsScreen(app.teacherRepository) } }
+        composable(Routes.TEACHER_RECORDS) {
+            TeacherScaffold(navController, factory) {
+                TeacherRecordsScreen(
+                    repo = app.teacherRepository,
+                    onEditSession = { offeringId, sessionDate ->
+                        navController.navigate(Routes.rollCall(offeringId, sessionDate))
+                    },
+                    onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                    onLogout = performLogout,
+                    onNavigateToNotifications = { navController.navigate(Routes.TEACHER_NOTIFICATIONS) }
+                )
+            }
+        }
         composable(Routes.TEACHER_NOTIFICATIONS) {
             TeacherNotificationsScreen(
                 onNavigateBack = { navController.popBackStack() }

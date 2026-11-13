@@ -115,7 +115,7 @@ fun ConnectivityStrip(modifier: Modifier = Modifier) {
                     isBackOnline && isSyncing -> "Back online \u2022 Syncing attendance..."
                     isBackOnline -> "Back online"
                     queuedCount > 0 -> "Offline \u2022 $queuedCount session(s) queued"
-                    else -> "Offline \u2022 Working with cached data"
+                    else -> "Offline"
                 }
                 Text(
                     text = message,
