@@ -3,6 +3,7 @@ package com.akshit.attendance.ui.profile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.akshit.attendance.data.model.UserProfileResponse
+import com.akshit.attendance.data.offline.TeacherCacheManager
 import com.akshit.attendance.data.repository.AuthRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,12 +36,23 @@ class ProfileViewModel(private val repo: AuthRepository) : ViewModel() {
 
     fun loadProfile() {
         viewModelScope.launch {
-            _profile.value = ProfileUiState.Loading
-            _profile.value = try {
+            // ── Step 1: Load cached profile instantly if available ──
+            val cached = TeacherCacheManager.loadProfile()
+            if (cached != null) {
+                _profile.value = ProfileUiState.Loaded(cached)
+            } else {
+                _profile.value = ProfileUiState.Loading
+            }
+
+            // ── Step 2: Fetch fresh profile from network in background ──
+            try {
                 val data = repo.getMyProfile()
-                ProfileUiState.Loaded(data)
+                _profile.value = ProfileUiState.Loaded(data)
+                TeacherCacheManager.saveProfile(data)
             } catch (e: Exception) {
-                ProfileUiState.Error(e.message ?: "Failed to load profile details.")
+                if (_profile.value !is ProfileUiState.Loaded) {
+                    _profile.value = ProfileUiState.Error(e.message ?: "Failed to load profile details.")
+                }
             }
         }
     }

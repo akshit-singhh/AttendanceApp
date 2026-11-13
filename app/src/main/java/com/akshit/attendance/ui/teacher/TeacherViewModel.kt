@@ -29,7 +29,8 @@ sealed interface RosterUiState {
     object Loading : RosterUiState
     data class Loaded(
         val roster: List<StudentRosterResponse>,
-        val marks: Map<Int, AttendanceStatus>,
+        val marks: Map<Int, AttendanceStatus?>,
+        val initialMarks: Map<Int, AttendanceStatus?> = emptyMap(),
         val courseInfo: CourseScheduleResponse? = null,
         val sessionDate: String? = null
     ) : RosterUiState
@@ -62,6 +63,14 @@ class TeacherViewModel(
     private val tokenManager: TokenManager? = null
 ) : ViewModel() {
 
+    companion object {
+        private val courseInfoCache = java.util.concurrent.ConcurrentHashMap<Int, CourseScheduleResponse>()
+    }
+
+    // --- Temporary date override (Requested for testing: set to 12 Nov 2026 / Thursday) ---
+    private val EffectiveDate: LocalDate = LocalDate.of(2026, 11, 12)
+    private val EffectiveDay: String = "THU"
+
     private val _schedule = MutableStateFlow<ScheduleUiState>(ScheduleUiState.Loading)
     val schedule: StateFlow<ScheduleUiState> = _schedule
 
@@ -92,18 +101,28 @@ class TeacherViewModel(
 
     fun loadProfile() {
         viewModelScope.launch {
+            val cached = TeacherCacheManager.loadProfile()
+            if (cached != null) {
+                _profile.value = cached
+            }
             try {
-                _profile.value = repo.getProfile()
+                val fetched = repo.getProfile()
+                _profile.value = fetched
+                TeacherCacheManager.saveProfile(fetched)
             } catch (_: Exception) {
-                val name = tokenManager?.userName()
-                val email = tokenManager?.userEmail()
-                if (!name.isNullOrBlank()) {
-                    _profile.value = UserProfileResponse(
-                        user_id = 0,
-                        email = email ?: "",
-                        full_name = name,
-                        roles = listOf("TEACHER")
-                    )
+                if (_profile.value == null) {
+                    val name = tokenManager?.userName()
+                    val email = tokenManager?.userEmail()
+                    if (!name.isNullOrBlank()) {
+                        val synthetic = UserProfileResponse(
+                            user_id = 0,
+                            email = email ?: "",
+                            full_name = name,
+                            roles = listOf("TEACHER")
+                        )
+                        _profile.value = synthetic
+                        TeacherCacheManager.saveProfile(synthetic)
+                    }
                 }
             }
         }
@@ -114,49 +133,90 @@ class TeacherViewModel(
             _pending.value = PendingUiState.Loading
             _pending.value = try {
                 val list = repo.getPendingClasses()
+                OfflineAttendanceManager.markOnline()
                 PendingUiState.Loaded(list)
             } catch (e: Exception) {
-                PendingUiState.Error(e.message ?: "Could not load pending classes.")
+                if (TeacherCacheManager.isNetworkError(e.message)) {
+                    OfflineAttendanceManager.markOffline()
+                }
+                val msg = if (TeacherCacheManager.isNetworkError(e.message)) {
+                    "No internet connection. Unable to check pending classes."
+                } else {
+                    e.message ?: "Could not load pending classes."
+                }
+                PendingUiState.Error(msg)
             }
         }
     }
 
-    fun loadTimetable(teacherName: String? = null, facultyId: String? = null) {
+    fun loadTimetable(teacherName: String? = null, facultyId: String? = null, isRefresh: Boolean = false) {
         viewModelScope.launch {
-            _timetable.value = TimetableUiState.Loading
-            _timetable.value = try {
-                // When teacherName & facultyId are null, backend automatically and securely resolves
-                // the authenticated teacher's timetable from their token and employee_code (0% collision risk)
-                val response = repo.getTimetable(teacherName, facultyId)
-                TimetableUiState.Loaded(response)
-            } catch (e: Exception) {
-                TimetableUiState.Error(e.message ?: "Could not load timetable.")
-            }
-        }
-    }
-
-    fun loadSchedule(day: String? = null) {
-        viewModelScope.launch {
-            val teacherName = tokenManager?.userName()
-            val todayStr = LocalDate.now().toString()
-
-            // ── Step 1: Show cached data instantly (zero-latency, works fully offline) ──
-            val cached = TeacherCacheManager.loadSchedule()
-            if (cached.isNotEmpty()) {
-                val queuedIds = OfflineAttendanceManager.submittedOfferingIds.value
-                _schedule.value = ScheduleUiState.Loaded(
-                    classes = cached,
-                    submittedOfferingIds = queuedIds,
-                    teacherName = teacherName,
-                    fromCache = !TeacherCacheManager.isScheduleCacheForToday()
-                )
+            if (isRefresh) {
+                _timetable.value = TimetableUiState.Loading
             } else {
-                _schedule.value = ScheduleUiState.Loading
+                // ── Step 1: Show cached timetable instantly if available ──
+                val cached = TeacherCacheManager.loadTimetable()
+                if (cached != null) {
+                    _timetable.value = TimetableUiState.Loaded(cached)
+                } else {
+                    _timetable.value = TimetableUiState.Loading
+                }
             }
 
             // ── Step 2: Fetch fresh from network in background ──
             try {
-                val classes = repo.getSchedule(null, day)
+                // When teacherName & facultyId are null, backend automatically and securely resolves
+                // the authenticated teacher's timetable from their token and employee_code (0% collision risk)
+                val response = repo.getTimetable(teacherName, facultyId)
+                _timetable.value = TimetableUiState.Loaded(response)
+                TeacherCacheManager.saveTimetable(response)
+                OfflineAttendanceManager.markOnline()
+            } catch (e: Exception) {
+                if (TeacherCacheManager.isNetworkError(e.message)) {
+                    OfflineAttendanceManager.markOffline()
+                }
+                // Only show error if we have nothing cached to show!
+                if (_timetable.value !is TimetableUiState.Loaded) {
+                    val msg = if (TeacherCacheManager.isNetworkError(e.message)) {
+                        "No internet connection. Please check your network to load timetable."
+                    } else {
+                        e.message ?: "Could not load timetable."
+                    }
+                    _timetable.value = TimetableUiState.Error(msg)
+                }
+            }
+        }
+    }
+
+    fun loadSchedule(day: String? = null, isRefresh: Boolean = false) {
+        viewModelScope.launch {
+            val teacherName = tokenManager?.userName()
+            val todayStr = EffectiveDate.toString()
+
+            if (isRefresh) {
+                _schedule.value = ScheduleUiState.Loading
+            } else {
+                // ── Step 1: Show cached data instantly (zero-latency, works fully offline) ──
+                val cached = TeacherCacheManager.loadSchedule()
+                cached.forEach { courseInfoCache[it.course_offering_id] = it }
+                if (cached.isNotEmpty()) {
+                    val queuedIds = OfflineAttendanceManager.submittedOfferingIds.value
+                    _schedule.value = ScheduleUiState.Loaded(
+                        classes = cached,
+                        submittedOfferingIds = queuedIds,
+                        teacherName = teacherName,
+                        fromCache = !TeacherCacheManager.isScheduleCacheForToday()
+                    )
+                } else {
+                    _schedule.value = ScheduleUiState.Loading
+                }
+            }
+
+            // ── Step 2: Fetch fresh from network in background ──
+            try {
+                val targetDay = day ?: EffectiveDay
+                val classes = repo.getSchedule(null, targetDay)
+                classes.forEach { courseInfoCache[it.course_offering_id] = it }
                 val submittedToday = try {
                     repo.getHistory()
                         .filter { it.date == todayStr }
@@ -174,6 +234,7 @@ class TeacherViewModel(
 
                 // Save fresh schedule to disk
                 TeacherCacheManager.saveSchedule(classes)
+                OfflineAttendanceManager.markOnline()
 
                 // ── Step 3: Pre-fetch all rosters for today's classes in background ──
                 // So the teacher can open any class card and start roll call even with no signal.
@@ -183,12 +244,18 @@ class TeacherViewModel(
                     repo.getRoster(offeringId, todayStr)
                 }
             } catch (e: Exception) {
+                if (TeacherCacheManager.isNetworkError(e.message)) {
+                    OfflineAttendanceManager.markOffline()
+                }
                 // Network failed — keep whatever is currently displayed (cache or loading)
                 // Only show error if we have nothing at all to show
                 if (_schedule.value is ScheduleUiState.Loading) {
-                    _schedule.value = ScheduleUiState.Error(
+                    val msg = if (TeacherCacheManager.isNetworkError(e.message)) {
+                        "No internet connection. Please check your network to load today's classes."
+                    } else {
                         e.message ?: "Could not load today's classes."
-                    )
+                    }
+                    _schedule.value = ScheduleUiState.Error(msg)
                 }
             }
         }
@@ -203,15 +270,20 @@ class TeacherViewModel(
         activeSessionDate = sessionDate
         _roster.value = RosterUiState.Loading
         viewModelScope.launch {
-            val targetDate = sessionDate ?: LocalDate.now().toString()
+            val targetDate = sessionDate ?: EffectiveDate.toString()
+            var courseInfo = customCourseInfo ?: courseInfoCache[courseOfferingId]
 
             // ── Step 1: Show cached roster instantly ──
             val cachedRoster = TeacherCacheManager.loadRoster(courseOfferingId)
             if (cachedRoster != null) {
-                val courseInfo = resolvecourseInfo(courseOfferingId, customCourseInfo)
+                if (courseInfo == null) {
+                    courseInfo = resolvecourseInfo(courseOfferingId, customCourseInfo)
+                }
+                val marksMap = cachedRoster.associate { it.student_id to it.status }
                 _roster.value = RosterUiState.Loaded(
                     roster = cachedRoster,
-                    marks = cachedRoster.associate { it.student_id to (it.status ?: AttendanceStatus.PRESENT) },
+                    marks = marksMap,
+                    initialMarks = marksMap,
                     courseInfo = courseInfo,
                     sessionDate = sessionDate
                 )
@@ -220,10 +292,14 @@ class TeacherViewModel(
             // ── Step 2: Try to fetch fresh roster from network ──
             try {
                 val freshRoster = repo.getRoster(courseOfferingId, targetDate)
-                val courseInfo = resolvecourseInfo(courseOfferingId, customCourseInfo)
+                if (courseInfo == null) {
+                    courseInfo = resolvecourseInfo(courseOfferingId, customCourseInfo)
+                }
+                val marksMap = freshRoster.associate { it.student_id to it.status }
                 _roster.value = RosterUiState.Loaded(
                     roster = freshRoster,
-                    marks = freshRoster.associate { it.student_id to (it.status ?: AttendanceStatus.PRESENT) },
+                    marks = marksMap,
+                    initialMarks = marksMap,
                     courseInfo = courseInfo,
                     sessionDate = sessionDate
                 )
@@ -241,38 +317,93 @@ class TeacherViewModel(
         }
     }
 
-    /** Resolves CourseScheduleResponse from loaded schedule or custom override. */
-    private fun resolvecourseInfo(
+    /** Resolves CourseScheduleResponse from memory, active schedule, disk cache, network schedule, or session history. */
+    private suspend fun resolvecourseInfo(
         courseOfferingId: Int,
         customCourseInfo: CourseScheduleResponse?
     ): CourseScheduleResponse? {
-        if (customCourseInfo != null) return customCourseInfo
+        if (customCourseInfo != null) {
+            courseInfoCache[courseOfferingId] = customCourseInfo
+            return customCourseInfo
+        }
+        courseInfoCache[courseOfferingId]?.let { return it }
+
         val sched = _schedule.value
         if (sched is ScheduleUiState.Loaded) {
-            return sched.classes.find { it.course_offering_id == courseOfferingId }
+            val found = sched.classes.find { it.course_offering_id == courseOfferingId }
+            if (found != null) {
+                courseInfoCache[courseOfferingId] = found
+                return found
+            }
         }
-        // Fall back to cached schedule on disk
-        return TeacherCacheManager.loadSchedule()
-            .find { it.course_offering_id == courseOfferingId }
+
+        // Check cached schedule on disk
+        val diskSchedule = TeacherCacheManager.loadSchedule()
+        diskSchedule.forEach { courseInfoCache[it.course_offering_id] = it }
+        val diskFound = diskSchedule.find { it.course_offering_id == courseOfferingId }
+        if (diskFound != null) return diskFound
+
+        // Query all schedule items from repository (day = "ALL")
+        try {
+            val allSchedule = repo.getSchedule(null, "ALL")
+            allSchedule.forEach { courseInfoCache[it.course_offering_id] = it }
+            val found = allSchedule.find { it.course_offering_id == courseOfferingId }
+            if (found != null) return found
+        } catch (_: Exception) {}
+
+        // Fallback: Reconstruct basic course info from session history
+        try {
+            val history = repo.getHistory()
+            val histItem = history.find { it.course_offering_id == courseOfferingId }
+            if (histItem != null) {
+                val synthesized = CourseScheduleResponse(
+                    course_offering_id = histItem.course_offering_id,
+                    subject_name = histItem.subject_name,
+                    subject_code = "---",
+                    section_name = histItem.section_name,
+                    start_time = "",
+                    end_time = "",
+                    room = "Campus Room"
+                )
+                courseInfoCache[courseOfferingId] = synthesized
+                return synthesized
+            }
+        } catch (_: Exception) {}
+
+        return null
+    }
+
+    fun setMark(studentId: Int, status: AttendanceStatus) {
+        val current = _roster.value
+        if (current is RosterUiState.Loaded) {
+            val existing = current.marks[studentId]
+            val updated = if (existing == status) null else status // tap active one deselects back to unmarked
+            _roster.value = current.copy(marks = current.marks + (studentId to updated))
+        }
     }
 
     fun toggleMark(studentId: Int) {
         val current = _roster.value
         if (current is RosterUiState.Loaded) {
-            val existing = current.marks[studentId] ?: AttendanceStatus.PRESENT
-            val flipped = if (existing == AttendanceStatus.PRESENT) AttendanceStatus.ABSENT else AttendanceStatus.PRESENT
-            _roster.value = current.copy(marks = current.marks + (studentId to flipped))
+            val existing = current.marks[studentId]
+            val next = when (existing) {
+                null -> AttendanceStatus.PRESENT
+                AttendanceStatus.PRESENT -> AttendanceStatus.ABSENT
+                AttendanceStatus.ABSENT -> AttendanceStatus.LEAVE
+                AttendanceStatus.LEAVE -> null
+            }
+            _roster.value = current.copy(marks = current.marks + (studentId to next))
         }
     }
 
-    fun markAll(status: AttendanceStatus) {
+    fun markAll(status: AttendanceStatus?) {
         val current = _roster.value
         if (current is RosterUiState.Loaded) {
             _roster.value = current.copy(marks = current.roster.associate { it.student_id to status })
         }
     }
 
-    fun submitAttendance(durationPeriods: Int = 1) {
+    fun submitAttendance(durationPeriods: Int = 1, defaultUnmarkedTo: AttendanceStatus = AttendanceStatus.ABSENT) {
         val current = _roster.value
         val courseOfferingId = activeCourseOfferingId
         if (current !is RosterUiState.Loaded || courseOfferingId == null) return
@@ -280,15 +411,21 @@ class TeacherViewModel(
         _submit.value = SubmitUiState.Submitting
         viewModelScope.launch {
             val nowUtc = Instant.now().toString()
-            val localToday = LocalDate.now().toString()
+            val localToday = EffectiveDate.toString()
             val targetDate = activeSessionDate ?: localToday
             val payload = OfflineSyncPayload(
                 session_uuid = UUID.randomUUID().toString(),
                 course_offering_id = courseOfferingId,
                 date = targetDate,
                 duration_periods = durationPeriods,
-                records = current.marks.map { (studentId, status) ->
-                    SyncRecordItem(record_uuid = UUID.randomUUID().toString(), student_id = studentId, status = status, captured_at = nowUtc)
+                records = current.roster.map { student ->
+                    val finalStatus = current.marks[student.student_id] ?: defaultUnmarkedTo
+                    SyncRecordItem(
+                        record_uuid = UUID.randomUUID().toString(),
+                        student_id = student.student_id,
+                        status = finalStatus,
+                        captured_at = nowUtc
+                    )
                 },
             )
             _submit.value = try {

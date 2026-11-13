@@ -3,7 +3,10 @@ package com.akshit.attendance.data.offline
 import android.content.Context
 import android.util.Log
 import com.akshit.attendance.data.model.CourseScheduleResponse
+import com.akshit.attendance.data.model.SessionHistoryResponse
 import com.akshit.attendance.data.model.StudentRosterResponse
+import com.akshit.attendance.data.model.TeacherTimetableResponse
+import com.akshit.attendance.data.model.UserProfileResponse
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,10 +31,16 @@ import java.time.LocalDate
  */
 object TeacherCacheManager {
 
+    // Temporary date override: set to 12 Nov 2026 (Thursday) as requested by user
+    private val EffectiveDate: LocalDate = LocalDate.of(2026, 11, 12)
+
     private const val TAG = "TeacherCacheManager"
     private const val SCHEDULE_FILE = "teacher_schedule_cache.json"
     private const val ROSTER_FILE_PREFIX = "roster_cache_"
     private const val DATE_STAMP_FILE = "teacher_schedule_date.txt"
+    private const val TIMETABLE_FILE = "teacher_timetable_cache.json"
+    private const val HISTORY_FILE = "teacher_history_cache.json"
+    private const val PROFILE_FILE = "user_profile_cache.json"
 
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -72,7 +81,7 @@ object TeacherCacheManager {
             val stampFile = File(ctx.filesDir, DATE_STAMP_FILE)
             if (!stampFile.exists()) return false
             val cachedDate = stampFile.readText().trim()
-            cachedDate == LocalDate.now().toString()
+            cachedDate == EffectiveDate.toString()
         } catch (e: Exception) {
             false
         }
@@ -84,7 +93,7 @@ object TeacherCacheManager {
         scope.launch {
             try {
                 File(ctx.filesDir, SCHEDULE_FILE).writeText(json.encodeToString(classes))
-                File(ctx.filesDir, DATE_STAMP_FILE).writeText(LocalDate.now().toString())
+                File(ctx.filesDir, DATE_STAMP_FILE).writeText(EffectiveDate.toString())
                 Log.d(TAG, "Schedule cache saved: ${classes.size} classes")
             } catch (e: Exception) {
                 Log.e(TAG, "Error saving schedule cache", e)
@@ -146,5 +155,101 @@ object TeacherCacheManager {
             }
             Log.d(TAG, "Roster pre-fetch complete for ${offeringIds.size} course(s)")
         }
+    }
+
+    // ─── Timetable Cache ─────────────────────────────────────────────────────
+
+    fun loadTimetable(): TeacherTimetableResponse? {
+        val ctx = appContext ?: return null
+        return try {
+            val file = File(ctx.filesDir, TIMETABLE_FILE)
+            if (!file.exists()) return null
+            json.decodeFromString<TeacherTimetableResponse>(file.readText())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading timetable cache", e)
+            null
+        }
+    }
+
+    fun saveTimetable(timetable: TeacherTimetableResponse) {
+        val ctx = appContext ?: return
+        scope.launch {
+            try {
+                File(ctx.filesDir, TIMETABLE_FILE).writeText(json.encodeToString(timetable))
+                Log.d(TAG, "Timetable cache saved")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving timetable cache", e)
+            }
+        }
+    }
+
+    // ─── Attendance History Cache ────────────────────────────────────────────
+
+    fun loadHistory(): List<SessionHistoryResponse>? {
+        val ctx = appContext ?: return null
+        return try {
+            val file = File(ctx.filesDir, HISTORY_FILE)
+            if (!file.exists()) return null
+            json.decodeFromString<List<SessionHistoryResponse>>(file.readText())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading history cache", e)
+            null
+        }
+    }
+
+    fun saveHistory(history: List<SessionHistoryResponse>) {
+        val ctx = appContext ?: return
+        scope.launch {
+            try {
+                File(ctx.filesDir, HISTORY_FILE).writeText(json.encodeToString(history))
+                Log.d(TAG, "History cache saved: ${history.size} session(s)")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving history cache", e)
+            }
+        }
+    }
+
+    // ─── User Profile Cache ──────────────────────────────────────────────────
+
+    fun loadProfile(): UserProfileResponse? {
+        val ctx = appContext ?: return null
+        return try {
+            val file = File(ctx.filesDir, PROFILE_FILE)
+            if (!file.exists()) return null
+            json.decodeFromString<UserProfileResponse>(file.readText())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading profile cache", e)
+            null
+        }
+    }
+
+    fun saveProfile(profile: UserProfileResponse) {
+        val ctx = appContext ?: return
+        scope.launch {
+            try {
+                File(ctx.filesDir, PROFILE_FILE).writeText(json.encodeToString(profile))
+                Log.d(TAG, "Profile cache saved")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving profile cache", e)
+            }
+        }
+    }
+
+    /**
+     * Determines whether an error string is a network/connectivity issue rather than an app defect.
+     */
+    fun isNetworkError(message: String?): Boolean {
+        if (message == null) return false
+        val lower = message.lowercase()
+        return lower.contains("unable to resolve host") ||
+               lower.contains("no address associated with hostname") ||
+               lower.contains("failed to connect") ||
+               lower.contains("connectexception") ||
+               lower.contains("sockettimeoutexception") ||
+               lower.contains("unknownhostexception") ||
+               lower.contains("network") ||
+               lower.contains("timeout") ||
+               lower.contains("offline") ||
+               lower.contains("connection refused")
     }
 }

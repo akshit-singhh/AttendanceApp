@@ -7,6 +7,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -138,6 +141,143 @@ fun ScheduleCardSkeleton(modifier: Modifier = Modifier) {
             }
             Spacer(Modifier.width(8.dp))
             SkeletonBox(modifier = Modifier.width(60.dp).height(24.dp), shape = RoundedCornerShape(12.dp))
+        }
+    }
+}
+
+@Composable
+fun TeacherSessionCardSkeleton(modifier: Modifier = Modifier) {
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(Modifier.weight(1f)) {
+                SkeletonBox(modifier = Modifier.fillMaxWidth(0.65f).height(16.dp))
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SkeletonBox(modifier = Modifier.width(60.dp).height(18.dp), shape = RoundedCornerShape(6.dp))
+                    SkeletonBox(modifier = Modifier.width(80.dp).height(18.dp), shape = RoundedCornerShape(6.dp))
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            SkeletonBox(modifier = Modifier.size(24.dp), shape = CircleShape)
+        }
+    }
+}
+
+@Composable
+fun TeacherRosterStudentCardSkeleton(modifier: Modifier = Modifier) {
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(Modifier.weight(1f)) {
+                SkeletonBox(modifier = Modifier.fillMaxWidth(0.5f).height(15.dp))
+                Spacer(Modifier.height(6.dp))
+                SkeletonBox(modifier = Modifier.fillMaxWidth(0.35f).height(12.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            SkeletonBox(modifier = Modifier.width(72.dp).height(24.dp), shape = RoundedCornerShape(12.dp))
+        }
+    }
+}
+
+@Composable
+fun TeacherClassCardSkeleton(modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+            // Left Status Indicator Strip skeleton
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(6.dp)
+                    .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                    .background(Color(0xFFE2E8F0))
+            )
+
+            Column(Modifier.padding(16.dp)) {
+                // Top Row: Code, Credits, Section & Status Badge
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f, fill = false),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SkeletonBox(modifier = Modifier.width(54.dp).height(20.dp), shape = RoundedCornerShape(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        SkeletonBox(modifier = Modifier.width(36.dp).height(20.dp), shape = RoundedCornerShape(6.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        SkeletonBox(modifier = Modifier.width(64.dp).height(14.dp), shape = RoundedCornerShape(4.dp))
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    SkeletonBox(modifier = Modifier.width(82.dp).height(22.dp), shape = RoundedCornerShape(12.dp))
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                SkeletonBox(modifier = Modifier.fillMaxWidth(0.68f).height(18.dp), shape = RoundedCornerShape(4.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Time Row skeleton
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SkeletonBox(modifier = Modifier.size(16.dp), shape = CircleShape)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    SkeletonBox(modifier = Modifier.width(180.dp).height(13.dp), shape = RoundedCornerShape(4.dp))
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Room Row skeleton
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SkeletonBox(modifier = Modifier.size(16.dp), shape = CircleShape)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    SkeletonBox(modifier = Modifier.width(110.dp).height(13.dp), shape = RoundedCornerShape(4.dp))
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Dual Button Action Row skeleton: [ Mark Attendance ] and [ Postpone ]
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SkeletonBox(
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    SkeletonBox(
+                        modifier = Modifier.weight(0.55f).height(44.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+            }
         }
     }
 }

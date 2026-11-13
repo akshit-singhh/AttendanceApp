@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.akshit.attendance.ui.theme.Primary
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -26,7 +27,8 @@ fun AppTopBar(
     title: String,
     onLogout: () -> Unit = {},
     onOpenProfile: (() -> Unit)? = null,
-    onNotificationsClick: (() -> Unit)? = null
+    onNotificationsClick: (() -> Unit)? = null,
+    userInitials: String? = null
 ) {
     var profileMenuExpanded by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
@@ -87,7 +89,16 @@ fun AppTopBar(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Person, contentDescription = "Profile", tint = Color.White)
+                if (!userInitials.isNullOrBlank()) {
+                    Text(
+                        userInitials,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 12.sp
+                    )
+                } else {
+                    Icon(Icons.Default.Person, contentDescription = "Profile", tint = Color.White)
+                }
 
                 DropdownMenu(
                     expanded = profileMenuExpanded,

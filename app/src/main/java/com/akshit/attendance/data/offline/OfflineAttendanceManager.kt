@@ -193,11 +193,7 @@ object OfflineAttendanceManager {
         }
 
         try {
-            val request = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build()
-
-            cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+            cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     Log.d(TAG, "Connectivity restored: network available")
                     _isOnline.value = true
@@ -206,9 +202,7 @@ object OfflineAttendanceManager {
 
                 override fun onLost(network: Network) {
                     Log.d(TAG, "Connectivity lost: network unavailable")
-                    val currentCaps = cm.getNetworkCapabilities(cm.activeNetwork)
-                    val stillConnected = currentCaps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-                    _isOnline.value = stillConnected
+                    _isOnline.value = false
                 }
 
                 override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
@@ -220,7 +214,22 @@ object OfflineAttendanceManager {
                 }
             })
         } catch (e: Exception) {
-            Log.e(TAG, "Could not register NetworkCallback", e)
+            Log.e(TAG, "Could not register default network callback", e)
+        }
+    }
+
+    fun markOnline() {
+        if (!_isOnline.value) {
+            _isOnline.value = true
+            if (_queuedCount.value > 0) {
+                triggerAutoSync()
+            }
+        }
+    }
+
+    fun markOffline() {
+        if (_isOnline.value) {
+            _isOnline.value = false
         }
     }
 }
