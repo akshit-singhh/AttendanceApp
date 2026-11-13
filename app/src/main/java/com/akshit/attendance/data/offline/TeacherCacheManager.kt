@@ -41,6 +41,7 @@ object TeacherCacheManager {
     private const val TIMETABLE_FILE = "teacher_timetable_cache.json"
     private const val HISTORY_FILE = "teacher_history_cache.json"
     private const val PROFILE_FILE = "user_profile_cache.json"
+    private const val SUBMITTED_CLASSES_FILE = "teacher_submitted_classes.json"
 
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -233,6 +234,71 @@ object TeacherCacheManager {
                 Log.e(TAG, "Error saving profile cache", e)
             }
         }
+    }
+
+    // ─── Submitted Classes Cache ─────────────────────────────────────────────
+
+    /**
+     * Records that a class session has been submitted (either online or offline),
+     * persistently saving its key so that even if the network is lost or the app
+     * is restarted, the class card remains in SUBMITTED state (Attendance Recorded).
+     */
+    fun recordSubmittedClass(courseOfferingId: Int, date: String) {
+        val ctx = appContext ?: return
+        val key = "$courseOfferingId:$date"
+        try {
+            val file = File(ctx.filesDir, SUBMITTED_CLASSES_FILE)
+            val current = if (file.exists()) {
+                try {
+                    json.decodeFromString<List<String>>(file.readText()).toMutableSet()
+                } catch (_: Exception) {
+                    mutableSetOf()
+                }
+            } else {
+                mutableSetOf()
+            }
+            if (current.add(key)) {
+                file.writeText(json.encodeToString(current.toList()))
+                Log.d(TAG, "Recorded submitted class key: $key")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error recording submitted class: $key", e)
+        }
+    }
+
+    /**
+     * Retrieves all courseOfferingIds recorded as submitted for the specified date.
+     * Integrates:
+     * 1. The persistent submitted classes file.
+     * 2. Any sessions matching the date in the cached attendance history.
+     */
+    fun getSubmittedOfferingIdsForDate(date: String): Set<Int> {
+        val ctx = appContext ?: return emptySet()
+        val result = mutableSetOf<Int>()
+
+        // 1. From persistent submitted file
+        try {
+            val file = File(ctx.filesDir, SUBMITTED_CLASSES_FILE)
+            if (file.exists()) {
+                val list = json.decodeFromString<List<String>>(file.readText())
+                val suffix = ":$date"
+                list.filter { it.endsWith(suffix) }.forEach { entry ->
+                    entry.substringBefore(":").toIntOrNull()?.let { result.add(it) }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading submitted classes cache", e)
+        }
+
+        // 2. From cached history
+        try {
+            val history = loadHistory()
+            history?.filter { it.date == date }?.forEach {
+                result.add(it.course_offering_id)
+            }
+        } catch (_: Exception) {}
+
+        return result
     }
 
     /**
