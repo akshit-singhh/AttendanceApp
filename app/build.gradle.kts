@@ -72,14 +72,14 @@ dependencies {
     // Token + "must change password" flag persisted locally
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
+    // Lottie Animation
+    implementation("com.airbnb.android:lottie-compose:6.4.0")
+
     // Firebase Cloud Messaging & Analytics BoM
     val firebaseBom = platform("com.google.firebase:firebase-bom:33.7.0")
     implementation(firebaseBom)
     implementation("com.google.firebase:firebase-messaging-ktx")
     implementation("com.google.firebase:firebase-analytics-ktx")
-
-    // Lottie Animation for Compose
-    implementation("com.airbnb.android:lottie-compose:6.4.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

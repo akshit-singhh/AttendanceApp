@@ -33,6 +33,7 @@ import com.akshit.attendance.data.model.TimetableSlotItem
 import com.akshit.attendance.data.offline.OfflineAttendanceManager
 import com.akshit.attendance.data.offline.TeacherCacheManager
 import com.akshit.attendance.ui.components.AppTopBar
+import com.akshit.attendance.ui.components.NoConnectionView
 import com.akshit.attendance.ui.components.ScheduleCardSkeleton
 import java.time.LocalDate
 import java.time.LocalTime
@@ -133,59 +134,71 @@ fun TeacherTimetableScreen(
                     }
                 }
                 is TimetableUiState.Error -> {
-                    val isOffline = TeacherCacheManager.isNetworkError(current.message)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(16.dp)
+                    val isOffline = TeacherCacheManager.isNetworkError(current.message) || !isOnline
+                    if (isOffline) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = if (isOffline) Color(0xFFFEF3C7) else MaterialTheme.colorScheme.error.copy(alpha = 0.1f),
-                                modifier = Modifier.size(64.dp)
+                            NoConnectionView(
+                                message = "No internet connection",
+                                subMessage = "Connect to load your weekly timetable.",
+                                onRetry = { viewModel.loadTimetable() }
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(16.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = if (isOffline) Icons.Outlined.CloudOff else Icons.Outlined.ErrorOutline,
-                                        contentDescription = null,
-                                        tint = if (isOffline) Color(0xFFD97706) else MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(32.dp)
-                                    )
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.1f),
+                                    modifier = Modifier.size(64.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.ErrorOutline,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
                                 }
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = if (isOffline) "No Internet Connection" else "Unable to Load Timetable",
-                                color = TextDark,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 17.sp,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = if (isOffline)
-                                    "Please check your network settings and try again."
-                                else
-                                    current.message,
-                                color = TextGray,
-                                textAlign = TextAlign.Center,
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp
-                            )
-                            Spacer(modifier = Modifier.height(20.dp))
-                            Button(
-                                onClick = { viewModel.loadTimetable() },
-                                colors = ButtonDefaults.buttonColors(containerColor = NavyHeader),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Retry", fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "Unable to Load Timetable",
+                                    color = TextDark,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = current.message,
+                                    color = TextGray,
+                                    textAlign = TextAlign.Center,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp
+                                )
+                                Spacer(modifier = Modifier.height(20.dp))
+                                Button(
+                                    onClick = { viewModel.loadTimetable() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = NavyHeader),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Retry", fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }

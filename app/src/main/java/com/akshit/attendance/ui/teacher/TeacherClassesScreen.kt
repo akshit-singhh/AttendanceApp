@@ -26,6 +26,8 @@ import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.Sync
 import com.akshit.attendance.data.offline.OfflineAttendanceManager
+import com.akshit.attendance.data.offline.TeacherCacheManager
+import com.akshit.attendance.ui.components.NoConnectionView
 import com.akshit.attendance.ui.components.TeacherClassCardSkeleton
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -330,19 +332,28 @@ fun TeacherClassesScreen(
                         }
                         is ScheduleUiState.Error -> {
                             item {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFFFFF1F2),
-                                    border = BorderStroke(1.dp, Color(0xFFFECDD3)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(16.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
+                                val isOffline = TeacherCacheManager.isNetworkError(s.message) || !isOnline
+                                if (isOffline) {
+                                    NoConnectionView(
+                                        message = "No internet connection",
+                                        subMessage = "Connect to load your scheduled classes.",
+                                        onRetry = { viewModel.loadSchedule() }
+                                    )
+                                } else {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0xFFFFF1F2),
+                                        border = BorderStroke(1.dp, Color(0xFFFECDD3)),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text(s.message, color = SemanticRed, fontSize = 13.sp)
-                                        Spacer(Modifier.height(8.dp))
-                                        Button(onClick = { viewModel.loadSchedule() }) { Text("Retry") }
+                                        Column(
+                                            modifier = Modifier.padding(16.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(s.message, color = SemanticRed, fontSize = 13.sp)
+                                            Spacer(Modifier.height(8.dp))
+                                            Button(onClick = { viewModel.loadSchedule() }) { Text("Retry") }
+                                        }
                                     }
                                 }
                             }
@@ -395,16 +406,25 @@ fun TeacherClassesScreen(
                             }
                         }
                         is PendingUiState.Error -> item {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFFFFF1F2),
-                                border = BorderStroke(1.dp, Color(0xFFFECDD3)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(pState.message, color = SemanticRed, fontSize = 13.sp)
-                                    Spacer(Modifier.height(8.dp))
-                                    Button(onClick = { viewModel.loadPendingClasses() }) { Text("Retry") }
+                            val isOffline = TeacherCacheManager.isNetworkError(pState.message) || !isOnline
+                            if (isOffline) {
+                                NoConnectionView(
+                                    message = "No internet connection",
+                                    subMessage = "Connect to check for unmarked past sessions.",
+                                    onRetry = { viewModel.loadPendingClasses() }
+                                )
+                            } else {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFFFF1F2),
+                                    border = BorderStroke(1.dp, Color(0xFFFECDD3)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(pState.message, color = SemanticRed, fontSize = 13.sp)
+                                        Spacer(Modifier.height(8.dp))
+                                        Button(onClick = { viewModel.loadPendingClasses() }) { Text("Retry") }
+                                    }
                                 }
                             }
                         }
