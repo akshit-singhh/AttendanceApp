@@ -31,6 +31,7 @@ import com.akshit.attendance.data.offline.OfflineAttendanceManager
 import com.akshit.attendance.data.offline.TeacherCacheManager
 import com.akshit.attendance.data.repository.TeacherRepository
 import com.akshit.attendance.ui.components.AppTopBar
+import com.akshit.attendance.ui.components.NoConnectionView
 import com.akshit.attendance.ui.components.TeacherSessionCardSkeleton
 import com.akshit.attendance.ui.components.TeacherRosterStudentCardSkeleton
 import com.akshit.attendance.ui.theme.*
@@ -442,27 +443,35 @@ fun TeacherRecordsScreen(
                     } else if (historyError != null && history.isEmpty()) {
                         item {
                             val isOffline = TeacherCacheManager.isNetworkError(historyError) || !isOnline
-                            val bg = if (isOffline) AmberBg else RedBg
-                            val border = if (isOffline) AmberText.copy(alpha = 0.3f) else RedText.copy(alpha = 0.3f)
-                            val txt = if (isOffline) AmberText else RedText
-                            val icon = if (isOffline) Icons.Outlined.CloudOff else Icons.Outlined.ErrorOutline
-                            val message = if (isOffline) "No internet connection. Please check your network to load past sessions." else historyError!!
+                            if (isOffline) {
+                                NoConnectionView(
+                                    message = "No internet connection",
+                                    subMessage = "Connect to view past attendance records.",
+                                    onRetry = { loadHistory(true) }
+                                )
+                            } else {
+                                val bg = RedBg
+                                val border = RedText.copy(alpha = 0.3f)
+                                val txt = RedText
+                                val icon = Icons.Outlined.ErrorOutline
+                                val message = historyError!!
 
-                            Surface(
-                                color = bg,
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, border),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                Surface(
+                                    color = bg,
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, border),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Icon(icon, contentDescription = null, tint = txt, modifier = Modifier.size(20.dp))
-                                    Text(message, color = txt, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                                    TextButton(onClick = { loadHistory(true) }) {
-                                        Text("Retry", fontWeight = FontWeight.Bold, color = txt)
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(icon, contentDescription = null, tint = txt, modifier = Modifier.size(20.dp))
+                                        Text(message, color = txt, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                                        TextButton(onClick = { loadHistory(true) }) {
+                                            Text("Retry", fontWeight = FontWeight.Bold, color = txt)
+                                        }
                                     }
                                 }
                             }
@@ -671,32 +680,40 @@ fun TeacherRecordsScreen(
                     } else if (rosterError != null && roster.isEmpty()) {
                         item {
                             val isOffline = TeacherCacheManager.isNetworkError(rosterError) || !isOnline
-                            val bg = if (isOffline) AmberBg else RedBg
-                            val border = if (isOffline) AmberText.copy(alpha = 0.3f) else RedText.copy(alpha = 0.3f)
-                            val txt = if (isOffline) AmberText else RedText
-                            val icon = if (isOffline) Icons.Outlined.CloudOff else Icons.Outlined.ErrorOutline
-                            val message = if (isOffline) "No internet connection. Connect to view full session roster." else rosterError!!
-                            Surface(
-                                color = bg,
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, border),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            if (isOffline) {
+                                NoConnectionView(
+                                    message = "No internet connection",
+                                    subMessage = "Connect to view full session roster.",
+                                    onRetry = { loadRosterForSession(currentSession, true) }
+                                )
+                            } else {
+                                val bg = RedBg
+                                val border = RedText.copy(alpha = 0.3f)
+                                val txt = RedText
+                                val icon = Icons.Outlined.ErrorOutline
+                                val message = rosterError!!
+                                Surface(
+                                    color = bg,
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, border),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Icon(icon, contentDescription = null, tint = txt, modifier = Modifier.size(20.dp))
-                                    Text(
-                                        message,
-                                        color = txt,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    TextButton(onClick = { loadRosterForSession(currentSession, true) }) {
-                                        Text("Retry", fontWeight = FontWeight.Bold, color = txt)
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(icon, contentDescription = null, tint = txt, modifier = Modifier.size(20.dp))
+                                        Text(
+                                            message,
+                                            color = txt,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        TextButton(onClick = { loadRosterForSession(currentSession, true) }) {
+                                            Text("Retry", fontWeight = FontWeight.Bold, color = txt)
+                                        }
                                     }
                                 }
                             }
