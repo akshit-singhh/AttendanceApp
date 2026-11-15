@@ -35,6 +35,7 @@ import com.akshit.attendance.data.offline.TeacherCacheManager
 import com.akshit.attendance.ui.components.AppTopBar
 import com.akshit.attendance.ui.components.NoConnectionView
 import com.akshit.attendance.ui.components.ScheduleCardSkeleton
+import com.akshit.attendance.util.AppDateProvider
 import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.delay
@@ -43,8 +44,8 @@ import kotlinx.coroutines.delay
 private val NavyHeader = Color(0xFF1A2758)
 private val NavyDark = Color(0xFF0F1A3C)
 
-// Temporary date override: set to 12 Nov 2026 (Thursday) as requested by user
-private val EffectiveDate: LocalDate = LocalDate.of(2026, 11, 12)
+// Dynamic date provider (toggleable via AppDateProvider)
+private val EffectiveDate: LocalDate get() = AppDateProvider.today
 private val LectureBg = Color(0xFFEFF6FF)
 private val LectureBorder = Color(0xFFBFDBFE)
 private val LectureText = Color(0xFF1E40AF)

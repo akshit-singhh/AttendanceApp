@@ -29,6 +29,7 @@ import com.akshit.attendance.data.offline.OfflineAttendanceManager
 import com.akshit.attendance.data.offline.TeacherCacheManager
 import com.akshit.attendance.ui.components.NoConnectionView
 import com.akshit.attendance.ui.components.TeacherClassCardSkeleton
+import com.akshit.attendance.util.AppDateProvider
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -68,8 +69,8 @@ private val SemanticRed = Color(0xFFE53935)
 private val SurfaceLight = Color(0xFFF5F7FA)
 private val TextGray = Color(0xFF545F71)
 
-// Temporary date override: set to 12 Nov 2026 (Thursday) as requested by user
-private val EffectiveDate: LocalDate = LocalDate.of(2026, 11, 12)
+// Dynamic date provider (toggleable via AppDateProvider)
+private val EffectiveDate: LocalDate get() = AppDateProvider.today
 
 enum class ClassState { SUBMITTED, ACTIVE, MISSED, UPCOMING }
 

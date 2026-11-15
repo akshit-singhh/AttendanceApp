@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.akshit.attendance.util.AppDateProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,8 +60,8 @@ private val TextGray = Color(0xFF545F71)
 private val TextDark = Color(0xFF0F172A)
 private val BorderSubtle = Color(0xFFE2E8F0)
 
-// Temporary date override: set to 12 Nov 2026 (Thursday) as requested by user
-private val EffectiveDate: LocalDate = LocalDate.of(2026, 11, 12)
+// Dynamic date provider (toggleable via AppDateProvider)
+private val EffectiveDate: LocalDate get() = AppDateProvider.today
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

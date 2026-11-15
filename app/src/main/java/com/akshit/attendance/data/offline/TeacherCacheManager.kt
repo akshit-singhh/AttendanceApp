@@ -7,6 +7,7 @@ import com.akshit.attendance.data.model.SessionHistoryResponse
 import com.akshit.attendance.data.model.StudentRosterResponse
 import com.akshit.attendance.data.model.TeacherTimetableResponse
 import com.akshit.attendance.data.model.UserProfileResponse
+import com.akshit.attendance.util.AppDateProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,8 +32,8 @@ import java.time.LocalDate
  */
 object TeacherCacheManager {
 
-    // Temporary date override: set to 12 Nov 2026 (Thursday) as requested by user
-    private val EffectiveDate: LocalDate = LocalDate.of(2026, 11, 12)
+    // Dynamic date provider: uses AppDateProvider (toggleable between live clock and demo semester)
+    private val EffectiveDate: LocalDate get() = AppDateProvider.today
 
     private const val TAG = "TeacherCacheManager"
     private const val SCHEDULE_FILE = "teacher_schedule_cache.json"

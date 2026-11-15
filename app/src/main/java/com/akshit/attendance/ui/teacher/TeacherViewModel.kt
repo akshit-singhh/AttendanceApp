@@ -7,6 +7,7 @@ import com.akshit.attendance.data.network.TokenManager
 import com.akshit.attendance.data.offline.OfflineAttendanceManager
 import com.akshit.attendance.data.offline.TeacherCacheManager
 import com.akshit.attendance.data.repository.TeacherRepository
+import com.akshit.attendance.util.AppDateProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -67,9 +68,9 @@ class TeacherViewModel(
         private val courseInfoCache = java.util.concurrent.ConcurrentHashMap<Int, CourseScheduleResponse>()
     }
 
-    // --- Temporary date override (Requested for testing: set to 12 Nov 2026 / Thursday) ---
-    private val EffectiveDate: LocalDate = LocalDate.of(2026, 11, 12)
-    private val EffectiveDay: String = "THU"
+    // Dynamic date & day provider (toggleable via AppDateProvider)
+    private val EffectiveDate: LocalDate get() = AppDateProvider.today
+    private val EffectiveDay: String get() = AppDateProvider.todayDayOfWeek.take(3).uppercase()
 
     private val _schedule = MutableStateFlow<ScheduleUiState>(ScheduleUiState.Loading)
     val schedule: StateFlow<ScheduleUiState> = _schedule
