@@ -3,6 +3,8 @@ package com.akshit.attendance.data.repository
 import com.akshit.attendance.data.model.*
 import com.akshit.attendance.data.network.ApiService
 import com.akshit.attendance.data.network.TokenManager
+import com.akshit.attendance.data.offline.StudentCacheManager
+import com.akshit.attendance.data.offline.TeacherCacheManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -102,6 +104,8 @@ class AuthRepository(
             } catch (_: Exception) {}
         }
         tokenManager.clear()
+        StudentCacheManager.clearAll()
+        TeacherCacheManager.clearAll()
     }
 
     suspend fun getMyProfile(): UserProfileResponse = api.getMyProfile()

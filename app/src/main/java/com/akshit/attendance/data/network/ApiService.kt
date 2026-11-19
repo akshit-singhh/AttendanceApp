@@ -46,7 +46,8 @@ interface ApiService {
     @GET("mobile/attendance/roster/{courseOfferingId}")
     suspend fun getRoster(
         @Path("courseOfferingId") courseOfferingId: Int,
-        @Query("date") date: String? = null
+        @Query("date") date: String? = null,
+        @Query("batch_label") batchLabel: String? = null
     ): List<StudentRosterResponse>
 
     @POST("mobile/attendance/sync")
@@ -55,11 +56,24 @@ interface ApiService {
     @GET("mobile/attendance/history")
     suspend fun getAttendanceHistory(): List<SessionHistoryResponse>
 
+    @GET("mobile/attendance/course/{courseOfferingId}/students-summary")
+    suspend fun getCourseStudentsSummary(
+        @Path("courseOfferingId") courseOfferingId: Int,
+        @Query("threshold") threshold: Double? = null
+    ): List<StudentAttendanceSummary>
+
     @POST("mobile/attendance/corrections")
     suspend fun submitCorrection(@Body body: CorrectionRequestCreate): SimpleStatus
 
     @POST("mobile/attendance/postpone")
     suspend fun postponeClass(@Body body: PostponeClassRequest): SimpleStatus
+
+    @PUT("mobile/attendance/course/{courseOfferingId}/student/{studentId}/lab-group")
+    suspend fun updateStudentLabGroup(
+        @Path("courseOfferingId") courseOfferingId: Int,
+        @Path("studentId") studentId: Int,
+        @Query("lab_group") labGroup: String
+    ): SimpleStatus
 
     @GET("mobile/timetable/teacher")
     suspend fun getTeacherTimetable(
@@ -80,6 +94,10 @@ interface ApiService {
 
     @GET("mobile/student/calendar")
     suspend fun getStudentCalendar(@Query("month") month: String? = null): StudentCalendarResponse
+
+    @GET("mobile/student/subject/{courseCode}/history")
+    suspend fun getStudentSubjectHistory(@Path("courseCode") courseCode: String): StudentSubjectHistoryResponse
+
 
     @POST("notifications/devices/register")
     suspend fun registerDeviceToken(@Body body: DeviceTokenRegisterRequest): SimpleStatus

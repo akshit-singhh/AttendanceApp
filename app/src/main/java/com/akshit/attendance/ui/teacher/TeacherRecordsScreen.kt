@@ -3,9 +3,11 @@ package com.akshit.attendance.ui.teacher
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,6 +53,13 @@ private val AmberBg = Color(0xFFFEF3C7)
 private val IndigoText = Color(0xFF4338CA)
 private val IndigoBg = Color(0xFFEEF2FF)
 
+private data class CourseFilterOption(
+    val courseOfferingId: Int,
+    val subjectName: String,
+    val sectionName: String,
+    val isLab: Boolean
+)
+
 private fun formatSessionDate(dateStr: String): String {
     return try {
         val parsed = LocalDate.parse(dateStr)
@@ -72,7 +82,7 @@ private fun formatSessionDateCompact(dateStr: String): String {
 @Composable
 fun TeacherRecordsScreen(
     repo: TeacherRepository,
-    onEditSession: (courseOfferingId: Int, sessionDate: String) -> Unit = { _, _ -> },
+    onEditSession: (courseOfferingId: Int, sessionDate: String, batchLabel: String?) -> Unit = { _, _, _ -> },
     onOpenProfile: () -> Unit = {},
     onLogout: () -> Unit = {},
     onNavigateToNotifications: () -> Unit = {}
@@ -83,7 +93,12 @@ fun TeacherRecordsScreen(
     var history by remember { mutableStateOf<List<SessionHistoryResponse>>(emptyList()) }
     var historyLoading by remember { mutableStateOf(true) }
     var historyError by remember { mutableStateOf<String?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
+
+    // Course and Date Filter States
+    var selectedCourseOfferingId by remember { mutableStateOf<Int?>(null) }
+    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    var isCalendarExpanded by remember { mutableStateOf(true) }
+    var calendarMonth by remember { mutableStateOf(LocalDate.now().withDayOfMonth(1)) }
 
     // Selected Session Navigation State
     var selectedSession by remember { mutableStateOf<SessionHistoryResponse?>(null) }
@@ -228,14 +243,35 @@ fun TeacherRecordsScreen(
         selectedSession = null
     }
 
-    // Filtered Sessions List
-    val filteredSessions = remember(history, searchQuery) {
-        val q = searchQuery.trim().lowercase()
-        if (q.isBlank()) history
-        else history.filter {
-            it.subject_name.lowercase().contains(q) ||
-            it.section_name.lowercase().contains(q) ||
-            it.date.contains(q)
+    // Available Courses for Horizontal Chip Filters
+    val availableCourses = remember(history) {
+        history.distinctBy { it.course_offering_id }.map { s ->
+            val isLab = s.subject_name.contains("Lab", ignoreCase = true) || !s.batch_label.isNullOrBlank()
+            CourseFilterOption(
+                courseOfferingId = s.course_offering_id,
+                subjectName = s.subject_name,
+                sectionName = s.section_name,
+                isLab = isLab
+            )
+        }
+    }
+
+    // Sessions in currently displayed Calendar Month (grouped by date)
+    val monthSessionsByDate = remember(history, calendarMonth, selectedCourseOfferingId) {
+        val prefix = calendarMonth.format(DateTimeFormatter.ofPattern("yyyy-MM", Locale.ENGLISH))
+        history
+            .filter { it.date.startsWith(prefix) }
+            .filter { selectedCourseOfferingId == null || it.course_offering_id == selectedCourseOfferingId }
+            .groupBy { it.date }
+    }
+
+    // Filtered Sessions List based on Course Chip and Calendar Date
+    val filteredSessions = remember(history, selectedCourseOfferingId, selectedDate) {
+        val selDateStr = selectedDate?.toString()
+        history.filter { session ->
+            val matchesCourse = selectedCourseOfferingId == null || session.course_offering_id == selectedCourseOfferingId
+            val matchesDate = selDateStr == null || session.date == selDateStr
+            matchesCourse && matchesDate
         }
     }
 
@@ -286,8 +322,17 @@ fun TeacherRecordsScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Spacer(Modifier.height(2.dp))
+                            val topGroupPart = if (!selectedSession!!.batch_label.isNullOrBlank()) {
+                                val raw = selectedSession!!.batch_label!!.trim()
+                                if (raw.startsWith("Group", ignoreCase = true) || raw.startsWith("Batch", ignoreCase = true)) raw
+                                else "Group $raw"
+                            } else null
                             Text(
-                                "${selectedSession!!.section_name} • ${formatSessionDateCompact(selectedSession!!.date)}",
+                                buildString {
+                                    append(selectedSession!!.section_name)
+                                    if (topGroupPart != null) append(" • $topGroupPart")
+                                    append(" • ${formatSessionDateCompact(selectedSession!!.date)}")
+                                },
                                 fontSize = 12.sp,
                                 color = TextGray
                             )
@@ -318,7 +363,7 @@ fun TeacherRecordsScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Header Card
+                    // Header Card (Clean section introduction)
                     item {
                         Surface(
                             color = Color.White,
@@ -326,58 +371,118 @@ fun TeacherRecordsScreen(
                             border = BorderStroke(1.dp, BorderSubtle),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(Modifier.padding(16.dp)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = PrimaryBlue.copy(alpha = 0.08f),
+                                    modifier = Modifier.size(34.dp)
                                 ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = PrimaryBlue.copy(alpha = 0.08f),
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                Icons.Outlined.History,
-                                                contentDescription = null,
-                                                tint = PrimaryBlue,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                    }
-                                    Column {
-                                        Text(
-                                            "Submitted Class Sessions",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp,
-                                            color = TextDark
-                                        )
-                                        Text(
-                                            "Select a class session to review or edit attendance",
-                                            fontSize = 11.sp,
-                                            color = TextGray
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Outlined.History,
+                                            contentDescription = null,
+                                            tint = PrimaryBlue,
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
-
-                                Spacer(Modifier.height(14.dp))
-
-                                // Search Field
-                                OutlinedTextField(
-                                    value = searchQuery,
-                                    onValueChange = { searchQuery = it },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    placeholder = { Text("Search by subject or section…", fontSize = 12.sp, color = TextGray) },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.Search, contentDescription = null, tint = TextGray, modifier = Modifier.size(18.dp))
-                                    },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        unfocusedBorderColor = BorderSubtle,
-                                        focusedBorderColor = PrimaryBlue
+                                Column {
+                                    Text(
+                                        "Submitted Class Sessions",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = TextDark
                                     )
-                                )
+                                    Text(
+                                        "Select a class session to review or edit attendance",
+                                        fontSize = 11.sp,
+                                        color = TextGray
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Course Filter Chips (horizontal row)
+                    if (availableCourses.isNotEmpty()) {
+                        item {
+                            CourseChipsRow(
+                                courses = availableCourses,
+                                selectedId = selectedCourseOfferingId,
+                                onSelectCourse = { selectedCourseOfferingId = it }
+                            )
+                        }
+                    }
+
+                    // Expandable Month Calendar Card with multi-dot indicators
+                    item {
+                        TeacherMonthCalendarCard(
+                            currentMonth = calendarMonth,
+                            selectedDate = selectedDate,
+                            isExpanded = isCalendarExpanded,
+                            onToggleExpand = { isCalendarExpanded = !isCalendarExpanded },
+                            onPrevMonth = { calendarMonth = calendarMonth.minusMonths(1) },
+                            onNextMonth = { calendarMonth = calendarMonth.plusMonths(1) },
+                            onSelectDate = { date ->
+                                selectedDate = if (selectedDate == date) null else date
+                            },
+                            sessionsByDate = monthSessionsByDate
+                        )
+                    }
+
+                    // Active Filters Summary Bar
+                    if (selectedDate != null || selectedCourseOfferingId != null) {
+                        item {
+                            Surface(
+                                color = PrimaryBlue.copy(alpha = 0.05f),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, PrimaryBlue.copy(alpha = 0.15f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val dateLabel = selectedDate?.format(DateTimeFormatter.ofPattern("EEE, d MMM", Locale.ENGLISH))
+                                    val courseLabel = availableCourses.find { it.courseOfferingId == selectedCourseOfferingId }?.let { "${it.subjectName} (${it.sectionName})" }
+                                    val filterDesc = when {
+                                        dateLabel != null && courseLabel != null -> "$courseLabel • $dateLabel"
+                                        dateLabel != null -> "Date: $dateLabel"
+                                        else -> courseLabel ?: "Filtered"
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Outlined.FilterAlt, contentDescription = null, tint = PrimaryBlue, modifier = Modifier.size(16.dp))
+                                        Text(
+                                            text = "$filterDesc (${filteredSessions.size})",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = PrimaryBlue,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    TextButton(
+                                        onClick = {
+                                            selectedDate = null
+                                            selectedCourseOfferingId = null
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text("Clear All ×", fontSize = 11.sp, color = PrimaryBlue, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
                         }
                     }
@@ -506,14 +611,14 @@ fun TeacherRecordsScreen(
                                     }
                                     Spacer(Modifier.height(14.dp))
                                     Text(
-                                        if (searchQuery.isNotBlank()) "No Matching Sessions" else "No Sessions Recorded Yet",
+                                        if (selectedCourseOfferingId != null || selectedDate != null) "No Matching Sessions" else "No Sessions Recorded Yet",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 15.sp,
                                         color = TextDark
                                     )
                                     Spacer(Modifier.height(4.dp))
                                     Text(
-                                        if (searchQuery.isNotBlank()) "Try clearing your search query"
+                                        if (selectedCourseOfferingId != null || selectedDate != null) "Try changing or clearing your active filters"
                                         else "Classes marked in Roll Call will appear here automatically",
                                         fontSize = 12.sp,
                                         color = TextGray,
@@ -558,8 +663,17 @@ fun TeacherRecordsScreen(
                                     color = TextDark
                                 )
                                 Spacer(Modifier.height(4.dp))
+                                val groupPart = if (!currentSession.batch_label.isNullOrBlank()) {
+                                    val raw = currentSession.batch_label.trim()
+                                    if (raw.startsWith("Group", ignoreCase = true) || raw.startsWith("Batch", ignoreCase = true)) raw
+                                    else "Group $raw"
+                                } else null
                                 Text(
-                                    "Section ${currentSession.section_name} • ${currentSession.subject_name}",
+                                    buildString {
+                                        append("Section ${currentSession.section_name}")
+                                        if (groupPart != null) append(" • $groupPart")
+                                        append(" • ${currentSession.subject_name}")
+                                    },
                                     fontSize = 12.sp,
                                     color = TextGray
                                 )
@@ -605,7 +719,7 @@ fun TeacherRecordsScreen(
 
                                 Button(
                                     onClick = {
-                                        onEditSession(currentSession.course_offering_id, currentSession.date)
+                                        onEditSession(currentSession.course_offering_id, currentSession.date, currentSession.batch_label)
                                     },
                                     modifier = Modifier.fillMaxWidth().height(42.dp),
                                     shape = RoundedCornerShape(8.dp),
@@ -802,6 +916,31 @@ private fun SessionCard(
                         )
                     }
 
+                    val groupText = when {
+                        !session.batch_label.isNullOrBlank() -> {
+                            val raw = session.batch_label.trim()
+                            if (raw.startsWith("Group", ignoreCase = true) || raw.startsWith("Batch", ignoreCase = true)) raw
+                            else "Group $raw"
+                        }
+                        session.subject_name.contains("Lab", ignoreCase = true) -> "Lab"
+                        else -> null
+                    }
+
+                    if (groupText != null) {
+                        Surface(
+                            color = Color(0xFFFEF3C7),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                groupText,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFB45309),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
                     Text("•", fontSize = 11.sp, color = TextGray)
 
                     Text(
@@ -920,3 +1059,315 @@ private fun StatusPill(status: AttendanceStatus?) {
 }
 
 private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+@Composable
+private fun CourseChipsRow(
+    courses: List<CourseFilterOption>,
+    selectedId: Int?,
+    onSelectCourse: (Int?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item {
+            FilterChip(
+                selected = selectedId == null,
+                onClick = { onSelectCourse(null) },
+                label = { Text("All Classes", fontSize = 12.sp, fontWeight = if (selectedId == null) FontWeight.Bold else FontWeight.Medium) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = PrimaryBlue,
+                    selectedLabelColor = Color.White,
+                    containerColor = Color.White,
+                    labelColor = TextDark
+                ),
+                shape = RoundedCornerShape(8.dp),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = selectedId == null,
+                    borderColor = BorderSubtle,
+                    selectedBorderColor = PrimaryBlue
+                )
+            )
+        }
+        items(courses) { course ->
+            val isSelected = selectedId == course.courseOfferingId
+            FilterChip(
+                selected = isSelected,
+                onClick = { onSelectCourse(if (isSelected) null else course.courseOfferingId) },
+                label = {
+                    Text(
+                        "${course.subjectName} (${course.sectionName})",
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1
+                    )
+                },
+                leadingIcon = {
+                    if (course.isLab) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (isSelected) Color.White.copy(alpha = 0.25f) else Color(0xFFFEF3C7),
+                            modifier = Modifier.padding(end = 2.dp)
+                        ) {
+                            Text(
+                                "LAB",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) Color.White else Color(0xFFB45309),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = PrimaryBlue,
+                    selectedLabelColor = Color.White,
+                    containerColor = Color.White,
+                    labelColor = TextDark
+                ),
+                shape = RoundedCornerShape(8.dp),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = isSelected,
+                    borderColor = BorderSubtle,
+                    selectedBorderColor = PrimaryBlue
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun TeacherMonthCalendarCard(
+    currentMonth: LocalDate,
+    selectedDate: LocalDate?,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onPrevMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    onSelectDate: (LocalDate) -> Unit,
+    sessionsByDate: Map<String, List<SessionHistoryResponse>>,
+    modifier: Modifier = Modifier
+) {
+    val monthTitle = remember(currentMonth) {
+        currentMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH))
+    }
+    val totalSessions = remember(sessionsByDate) {
+        sessionsByDate.values.sumOf { it.size }
+    }
+
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, BorderSubtle),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            // Month Header with Prev/Next, Title, and Collapse/Expand Toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isExpanded) {
+                    IconButton(
+                        onClick = onPrevMonth,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Outlined.ChevronLeft, contentDescription = "Previous Month", tint = TextDark, modifier = Modifier.size(20.dp))
+                    }
+                } else {
+                    Icon(Icons.Outlined.CalendarMonth, contentDescription = null, tint = PrimaryBlue, modifier = Modifier.size(20.dp))
+                }
+
+                Column(
+                    horizontalAlignment = if (isExpanded) Alignment.CenterHorizontally else Alignment.Start,
+                    modifier = if (!isExpanded) Modifier.weight(1f).padding(start = 8.dp) else Modifier
+                ) {
+                    Text(
+                        text = monthTitle,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = TextDark
+                    )
+                    Text(
+                        text = if (totalSessions == 1) "1 class session held" else "$totalSessions class sessions held",
+                        fontSize = 11.sp,
+                        color = TextGray
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isExpanded) {
+                        IconButton(
+                            onClick = onNextMonth,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Outlined.ChevronRight, contentDescription = "Next Month", tint = TextDark, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                    IconButton(
+                        onClick = onToggleExpand,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                            contentDescription = if (isExpanded) "Collapse Calendar" else "Expand Calendar",
+                            tint = TextGray,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+
+            if (isExpanded) {
+                Spacer(Modifier.height(12.dp))
+
+                // Weekday Header: M T W T F S S
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceAround
+                ) {
+                    listOf("M", "T", "W", "T", "F", "S", "S").forEach { day ->
+                        Text(
+                            text = day,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextGray,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.width(36.dp)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                // Calendar Grid
+                val firstDayOfWeek = currentMonth.dayOfWeek.value // 1 = Monday, 7 = Sunday
+                val offset = firstDayOfWeek - 1
+                val maxDays = currentMonth.lengthOfMonth()
+                val totalCells = offset + maxDays
+                val rows = (totalCells + 6) / 7
+
+                for (r in 0 until rows) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceAround
+                    ) {
+                        for (c in 0 until 7) {
+                            val cellIndex = r * 7 + c
+                            val dayNum = cellIndex - offset + 1
+                            if (dayNum in 1..maxDays) {
+                                val cellDate = currentMonth.withDayOfMonth(dayNum)
+                                val isSelected = selectedDate == cellDate
+                                val isToday = cellDate == LocalDate.now()
+                                val cellDateStr = cellDate.toString()
+                                val daySessions = sessionsByDate[cellDateStr] ?: emptyList()
+                                val hasTheory = daySessions.any { !it.subject_name.contains("Lab", ignoreCase = true) && it.batch_label.isNullOrBlank() }
+                                val hasLab = daySessions.any { it.subject_name.contains("Lab", ignoreCase = true) || !it.batch_label.isNullOrBlank() }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            when {
+                                                isSelected -> PrimaryBlue
+                                                isToday -> PrimaryBlue.copy(alpha = 0.08f)
+                                                else -> Color.Transparent
+                                            }
+                                        )
+                                        .border(
+                                            width = if (isToday && !isSelected) 1.dp else 0.dp,
+                                            color = if (isToday && !isSelected) PrimaryBlue else Color.Transparent,
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                        .clickable { onSelectDate(cellDate) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            text = dayNum.toString(),
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) Color.White else if (isToday) PrimaryBlue else TextDark
+                                        )
+
+                                        Spacer(Modifier.height(2.dp))
+
+                                        // Multi-Dot Row for Sessions
+                                        if (daySessions.isNotEmpty()) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                if (isSelected) {
+                                                    // On selected PrimaryBlue background: crisp white dots
+                                                    Box(Modifier.size(4.dp).clip(CircleShape).background(Color.White))
+                                                    if (daySessions.size > 1) {
+                                                        Box(Modifier.size(4.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.7f)))
+                                                    }
+                                                } else {
+                                                    // Blue dot for Theory/Lecture
+                                                    if (hasTheory) {
+                                                        Box(Modifier.size(4.dp).clip(CircleShape).background(PrimaryBlue))
+                                                    }
+                                                    // Amber dot for Lab session
+                                                    if (hasLab) {
+                                                        Box(Modifier.size(4.dp).clip(CircleShape).background(Color(0xFFF59E0B)))
+                                                    }
+                                                    // If multiple theory and no lab
+                                                    if (hasTheory && !hasLab && daySessions.size > 1) {
+                                                        Box(Modifier.size(4.dp).clip(CircleShape).background(PrimaryBlue.copy(alpha = 0.45f)))
+                                                    }
+                                                    // If multiple labs and no theory
+                                                    if (hasLab && !hasTheory && daySessions.size > 1) {
+                                                        Box(Modifier.size(4.dp).clip(CircleShape).background(Color(0xFFF59E0B).copy(alpha = 0.45f)))
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            Spacer(Modifier.height(4.dp))
+                                        }
+                                    }
+                                }
+                            } else {
+                                Spacer(Modifier.size(38.dp))
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                // Bottom Dot Legend
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(PrimaryBlue))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Lecture", fontSize = 10.sp, color = TextGray)
+
+                    Spacer(Modifier.width(16.dp))
+
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(Color(0xFFF59E0B)))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Lab Session", fontSize = 10.sp, color = TextGray)
+
+                    Spacer(Modifier.width(16.dp))
+
+                    Text("• Tap date to filter", fontSize = 10.sp, color = TextGray)
+                }
+            }
+        }
+    }
+}

@@ -21,8 +21,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.akshit.attendance.data.offline.OfflineAttendanceManager
 import com.akshit.attendance.notification.AttendanceNotificationManager
 import com.akshit.attendance.notification.NotificationItem
+import com.akshit.attendance.ui.components.NoConnectionView
 import com.akshit.attendance.ui.theme.*
 
 private val CardBorderColor = Color(0xFFE2E8F0)
@@ -36,6 +38,9 @@ fun TeacherNotificationsScreen(
     onNavigateBack: () -> Unit
 ) {
     val notifications by AttendanceNotificationManager.notifications.collectAsState()
+    val connectionStatus by AttendanceNotificationManager.connectionStatus.collectAsState()
+    val isOnline by OfflineAttendanceManager.isOnline.collectAsState()
+    val isSyncFailed = connectionStatus == "Sync failed"
 
     LaunchedEffect(Unit) {
         AttendanceNotificationManager.fetchHistory()
@@ -60,21 +65,12 @@ fun TeacherNotificationsScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            "FACULTY NOTIFICATIONS",
-                            fontSize = 10.sp,
-                            color = TextGray,
-                            letterSpacing = 1.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            if (unreadCount > 0) "Inbox ($unreadCount new)" else "Inbox",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextDark
-                        )
-                    }
+                    Text(
+                        if (unreadCount > 0) "Inbox ($unreadCount new)" else "Inbox",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextDark
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
@@ -95,13 +91,27 @@ fun TeacherNotificationsScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        if (notifications.isEmpty() && (!isOnline || isSyncFailed)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                NoConnectionView(
+                    message = "No internet connection",
+                    subMessage = "Connect to check for incoming notifications.",
+                    onRetry = { AttendanceNotificationManager.fetchHistory() }
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
             // Filter Chips Row
             item {
                 Row(
@@ -206,6 +216,7 @@ fun TeacherNotificationsScreen(
             }
         }
     }
+}
 }
 
 @Composable

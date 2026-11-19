@@ -14,13 +14,6 @@ import retrofit2.Retrofit
 import java.util.concurrent.TimeUnit
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-
-/**
- * Attaches the stored access token to every request and automatically handles
- * token refresh when receiving a 401 Unauthorized or 403 Forbidden.
- * If the refresh token also fails, the session is cleared and a session-expired
- * event is emitted to navigate the user back to the login screen.
- */
 private class AuthInterceptor(private val tokenManager: TokenManager) : Interceptor {
     private val refreshLock = Any()
 
@@ -28,7 +21,6 @@ private class AuthInterceptor(private val tokenManager: TokenManager) : Intercep
         val originalRequest = chain.request()
         val path = originalRequest.url.encodedPath
 
-        // Do not attach token or attempt auto-refresh on authentication endpoints
         if (path.contains("/auth/login") ||
             path.contains("/auth/refresh") ||
             path.contains("/auth/forgot-password") ||
@@ -39,91 +31,106 @@ private class AuthInterceptor(private val tokenManager: TokenManager) : Intercep
 
         val token = runBlocking { tokenManager.accessToken() }
         val authenticatedRequest = if (!token.isNullOrBlank()) {
-            originalRequest.newBuilder()
-                .header("Authorization", "Bearer $token")
-                .build()
-        } else {
-            originalRequest
-        }
+            originalRequest.newBuilder().header("Authorization", "Bearer $token").build()
+        } else originalRequest
 
         val response = chain.proceed(authenticatedRequest)
 
-        // Handle 401 Unauthorized or 403 Forbidden (token expired/invalid)
-        if (response.code == 401 || response.code == 403) {
-            synchronized(refreshLock) {
-                // Check if another thread already refreshed while this thread was waiting
-                val currentToken = runBlocking { tokenManager.accessToken() }
-                if (!currentToken.isNullOrBlank() && currentToken != token) {
-                    response.close()
-                    val retried = originalRequest.newBuilder()
-                        .header("Authorization", "Bearer $currentToken")
-                        .build()
-                    return chain.proceed(retried)
-                }
+        // The backend uses 401 for invalid/expired access tokens. A 403 is an
+        // authorization denial and must not rotate the user's refresh token.
+        if (response.code != 401) return response
 
-                val refreshToken = runBlocking { tokenManager.refreshToken() }
-                if (refreshToken.isNullOrBlank()) {
-                    runBlocking { tokenManager.clear() }
-                    tokenManager.notifySessionExpired()
-                    return response
-                }
+        synchronized(refreshLock) {
+            val currentToken = runBlocking { tokenManager.accessToken() }
+            if (!currentToken.isNullOrBlank() && currentToken != token) {
+                response.close()
+                return chain.proceed(
+                    originalRequest.newBuilder().header("Authorization", "Bearer $currentToken").build(),
+                )
+            }
 
-                val newTokens = performRefresh(refreshToken)
-                if (newTokens != null) {
+            val refreshToken = runBlocking { tokenManager.refreshToken() }
+            if (refreshToken.isNullOrBlank()) {
+                runBlocking { tokenManager.clear() }
+                tokenManager.notifySessionExpired()
+                return response
+            }
+
+            return when (val outcome = performRefresh(refreshToken)) {
+                is RefreshOutcome.Success -> {
+                    val tokens = outcome.tokens
                     runBlocking {
                         tokenManager.save(
-                            access = newTokens.access_token,
-                            refresh = newTokens.refresh_token,
-                            mustChangePassword = newTokens.must_change_password,
-                            role = newTokens.active_role,
-                            userName = newTokens.user_name,
-                            userEmail = newTokens.user_email
+                            access = tokens.access_token,
+                            refresh = tokens.refresh_token,
+                            mustChangePassword = tokens.must_change_password,
+                            role = tokens.active_role,
+                            userName = tokens.user_name,
+                            userEmail = tokens.user_email,
                         )
                     }
                     response.close()
-                    val retried = originalRequest.newBuilder()
-                        .header("Authorization", "Bearer ${newTokens.access_token}")
-                        .build()
-                    return chain.proceed(retried)
-                } else {
+                    chain.proceed(
+                        originalRequest.newBuilder()
+                            .header("Authorization", "Bearer ${tokens.access_token}")
+                            .build(),
+                    )
+                }
+                RefreshOutcome.Invalid -> {
                     runBlocking { tokenManager.clear() }
                     tokenManager.notifySessionExpired()
-                    return response
+                    response
                 }
+                // Keep both tokens for network errors, rate limits, and server
+                // failures. A later request can retry refresh without login.
+                RefreshOutcome.TemporaryFailure -> response
             }
         }
-
-        return response
     }
 
-    private fun performRefresh(refreshToken: String): TokenResponse? {
+    private fun performRefresh(refreshToken: String): RefreshOutcome {
         return try {
             val url = "${ApiConfig.BASE_URL.trimEnd('/')}/auth/refresh"
-            val body = """{"refresh_token":"$refreshToken"}"""
-            val requestBody = body.toRequestBody("application/json".toMediaType())
+            val body = Json.encodeToString(
+                kotlinx.serialization.serializer<Map<String, String>>(),
+                mapOf("refresh_token" to refreshToken),
+            )
             val request = okhttp3.Request.Builder()
                 .url(url)
-                .post(requestBody)
+                .post(body.toRequestBody("application/json".toMediaType()))
                 .build()
-
-            val unauthenticatedClient = OkHttpClient.Builder()
+            val client = OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
                 .build()
 
-            val response = unauthenticatedClient.newCall(request).execute()
-            if (response.isSuccessful) {
-                val jsonString = response.body?.string()
-                if (!jsonString.isNullOrBlank()) {
-                    val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
-                    json.decodeFromString<TokenResponse>(jsonString)
-                } else null
-            } else {
-                null
+            client.newCall(request).execute().use { response ->
+                when {
+                    response.isSuccessful -> {
+                        val responseBody = response.body?.string()
+                        if (responseBody.isNullOrBlank()) RefreshOutcome.TemporaryFailure
+                        else {
+                            val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+                            try {
+                                RefreshOutcome.Success(json.decodeFromString<TokenResponse>(responseBody))
+                            } catch (_: Exception) {
+                                RefreshOutcome.TemporaryFailure
+                            }
+                        }
+                    }
+                    response.code == 401 || response.code == 404 -> RefreshOutcome.Invalid
+                    else -> RefreshOutcome.TemporaryFailure
+                }
             }
-        } catch (e: Exception) {
-            null
+        } catch (_: Exception) {
+            RefreshOutcome.TemporaryFailure
         }
+    }
+
+    private sealed interface RefreshOutcome {
+        data class Success(val tokens: TokenResponse) : RefreshOutcome
+        data object Invalid : RefreshOutcome
+        data object TemporaryFailure : RefreshOutcome
     }
 }
 
@@ -143,9 +150,7 @@ object RetrofitClient {
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
-
         val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
-
         return Retrofit.Builder()
             .baseUrl(ApiConfig.BASE_URL)
             .client(client)

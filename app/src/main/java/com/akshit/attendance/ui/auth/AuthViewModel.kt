@@ -9,6 +9,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.json.JSONObject
+import retrofit2.HttpException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 sealed interface AuthUiState {
     object Idle : AuthUiState
@@ -94,7 +99,7 @@ class AuthViewModel(
                 )
                 _state.value = AuthUiState.Success(response.copy(active_role = effectiveRole))
             } catch (e: Exception) {
-                _state.value = AuthUiState.Error(e.message ?: "Login failed. Check your ID and password.")
+                _state.value = AuthUiState.Error(formatAuthErrorMessage(e))
             }
         }
     }
@@ -125,7 +130,7 @@ class AuthViewModel(
                         ?: TokenResponse(access_token = "", refresh_token = "", must_change_password = false)
                 )
             } catch (e: Exception) {
-                _state.value = AuthUiState.Error(e.message ?: "Could not update password.")
+                _state.value = AuthUiState.Error(formatAuthErrorMessage(e))
             }
         }
     }
@@ -146,7 +151,7 @@ class AuthViewModel(
                 )
                 _state.value = AuthUiState.Success(response)
             } catch (e: Exception) {
-                _state.value = AuthUiState.Error(e.message ?: "Could not switch role.")
+                _state.value = AuthUiState.Error(formatAuthErrorMessage(e))
             }
         }
     }
@@ -157,6 +162,8 @@ class AuthViewModel(
                 repo.logout()
             } catch (e: Exception) {
                 tokenManager.clear()
+                com.akshit.attendance.data.offline.StudentCacheManager.clearAll()
+                com.akshit.attendance.data.offline.TeacherCacheManager.clearAll()
             } finally {
                 _state.value = AuthUiState.Idle
                 onComplete()
@@ -183,7 +190,7 @@ class AuthViewModel(
                 val res = repo.forgotPassword(trimmed)
                 _forgotPasswordState.value = ForgotPasswordUiState.OtpSent(res.message ?: "Verification code sent to your email.")
             } catch (e: Exception) {
-                _forgotPasswordState.value = ForgotPasswordUiState.Error(e.message ?: "Failed to send reset code. Please try again.")
+                _forgotPasswordState.value = ForgotPasswordUiState.Error(formatAuthErrorMessage(e))
             }
         }
     }
@@ -213,7 +220,7 @@ class AuthViewModel(
                 val res = repo.resetPassword(trimmedIdentifier, trimmedOtp, newPassword)
                 _forgotPasswordState.value = ForgotPasswordUiState.ResetSuccess(res.message ?: "Password reset successfully.")
             } catch (e: Exception) {
-                _forgotPasswordState.value = ForgotPasswordUiState.Error(e.message ?: "Invalid or expired OTP.")
+                _forgotPasswordState.value = ForgotPasswordUiState.Error(formatAuthErrorMessage(e))
             }
         }
     }
@@ -221,4 +228,51 @@ class AuthViewModel(
     fun resetForgotPasswordState() {
         _forgotPasswordState.value = ForgotPasswordUiState.Idle
     }
+}
+
+private fun formatAuthErrorMessage(e: Throwable): String {
+    if (e is HttpException) {
+        val detail = try {
+            val bodyString = e.response()?.errorBody()?.string()
+            if (!bodyString.isNullOrBlank()) {
+                val json = JSONObject(bodyString)
+                val d = json.optString("detail")
+                if (d.isNotBlank()) d else null
+            } else null
+        } catch (_: Exception) {
+            null
+        }
+
+        if (!detail.isNullOrBlank()) {
+            return detail
+        }
+
+        return when (e.code()) {
+            401 -> "Invalid email/roll number or password. Please try again."
+            400 -> "Invalid credentials or request format."
+            403 -> "Account is not authorized or has been disabled."
+            404 -> "Account not found. Please check your roll number or email."
+            429 -> "Too many attempts. Please wait a moment and try again."
+            in 500..599 -> "University server is temporarily unavailable. Please try again later."
+            else -> "Invalid email/roll number or password. Please try again."
+        }
+    }
+
+    if (e is UnknownHostException || e is SocketTimeoutException || e is ConnectException) {
+        return "Unable to connect to server. Please check your internet connection."
+    }
+
+    val msg = e.message ?: ""
+    if (msg.contains("Failed to connect", ignoreCase = true) ||
+        msg.contains("Unable to resolve host", ignoreCase = true) ||
+        msg.contains("timeout", ignoreCase = true)
+    ) {
+        return "Unable to connect to server. Please check your internet connection."
+    }
+
+    if (msg.contains("401", ignoreCase = true) || msg.startsWith("HTTP", ignoreCase = true)) {
+        return "Invalid email/roll number or password. Please try again."
+    }
+
+    return if (msg.isNotBlank()) msg else "Invalid email/roll number or password. Please try again."
 }

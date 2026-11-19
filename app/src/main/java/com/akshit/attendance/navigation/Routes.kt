@@ -18,15 +18,20 @@ object Routes {
     const val STUDENT_NOTIFICATIONS = "student_notifications"
 
     const val TEACHER_CLASSES = "teacher_classes"
-    const val TEACHER_ROLL_CALL = "teacher_roll_call/{courseOfferingId}?sessionDate={sessionDate}"
+    const val TEACHER_ROLL_CALL = "teacher_roll_call/{courseOfferingId}?sessionDate={sessionDate}&batchLabel={batchLabel}"
     const val TEACHER_TIMETABLE = "teacher_timetable"
+    const val TEACHER_ANALYTICS = "teacher_analytics"
     const val TEACHER_RECORDS = "teacher_records"
     const val TEACHER_NOTIFICATIONS = "teacher_notifications"
     const val PROFILE = "profile"
 
-    fun rollCall(courseOfferingId: Int, sessionDate: String? = null) =
-        if (sessionDate != null) "teacher_roll_call/$courseOfferingId?sessionDate=$sessionDate"
+    fun rollCall(courseOfferingId: Int, sessionDate: String? = null, batchLabel: String? = null): String {
+        val params = mutableListOf<String>()
+        if (!sessionDate.isNullOrBlank()) params.add("sessionDate=$sessionDate")
+        if (!batchLabel.isNullOrBlank()) params.add("batchLabel=$batchLabel")
+        return if (params.isNotEmpty()) "teacher_roll_call/$courseOfferingId?${params.joinToString("&")}"
         else "teacher_roll_call/$courseOfferingId"
+    }
 
     fun subjectDetail(subjectCode: String) = "student_subject_detail/$subjectCode"
 }

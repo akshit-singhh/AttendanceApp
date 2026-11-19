@@ -43,6 +43,7 @@ class AttendanceApp : Application() {
 
         com.akshit.attendance.data.offline.OfflineAttendanceManager.init(this) { teacherRepository }
         com.akshit.attendance.data.offline.TeacherCacheManager.init(this)
+        com.akshit.attendance.data.offline.StudentCacheManager.init(this)
 
         // Uncomment to develop UI fully offline against sample data:
         // teacherRepository = MockTeacherRepository()

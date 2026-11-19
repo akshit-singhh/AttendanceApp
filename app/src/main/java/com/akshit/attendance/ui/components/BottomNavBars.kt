@@ -40,12 +40,13 @@ val studentDestinations = listOf(
     NavDestination(Routes.STUDENT_SUBJECTS, "Subjects", Icons.AutoMirrored.Filled.MenuBook),
     NavDestination(Routes.STUDENT_TIMETABLE, "Timetable", Icons.Default.Schedule),
     NavDestination(Routes.STUDENT_PLANNER, "Planner", Icons.AutoMirrored.Filled.TrendingUp),
-    NavDestination(Routes.STUDENT_CALENDAR, "Calendar", Icons.Default.CalendarMonth),
+    NavDestination(Routes.STUDENT_CALENDAR, "History", Icons.Default.CalendarMonth),
 )
 
 val teacherDestinations = listOf(
     NavDestination(Routes.TEACHER_CLASSES, "Classes", Icons.Default.CalendarMonth),
     NavDestination(Routes.TEACHER_TIMETABLE, "Timetable", Icons.Default.Schedule),
+    NavDestination(Routes.TEACHER_ANALYTICS, "Analytics", Icons.Default.BarChart),
     NavDestination(Routes.TEACHER_RECORDS, "Records", Icons.Default.Folder),
 )
 
@@ -115,7 +116,7 @@ fun ConnectivityStrip(modifier: Modifier = Modifier) {
                     isBackOnline && isSyncing -> "Back online \u2022 Syncing attendance..."
                     isBackOnline -> "Back online"
                     queuedCount > 0 -> "Offline \u2022 $queuedCount session(s) queued"
-                    else -> "Offline"
+                    else -> "Offline Mode"
                 }
                 Text(
                     text = message,

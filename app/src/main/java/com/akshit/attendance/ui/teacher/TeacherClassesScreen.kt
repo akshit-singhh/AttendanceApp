@@ -77,13 +77,14 @@ enum class ClassState { SUBMITTED, ACTIVE, MISSED, UPCOMING }
 @Composable
 fun TeacherClassesScreen(
     viewModel: TeacherViewModel,
-    onStartRollCall: (Int, String?) -> Unit,
+    onStartRollCall: (Int, String?, String?) -> Unit,
     onLogout: () -> Unit,
     onOpenProfile: () -> Unit = {},
     onNavigateToNotifications: () -> Unit = {}
 ) {
     var currentTime by remember { mutableStateOf(LocalTime.now()) }
     var selectedTab by remember { mutableStateOf(0) } // 0 = Today's Classes, 1 = Pending Attendance
+    var selectedPendingOfferingId by remember { mutableStateOf<Int?>(null) } // null = All Classes
     var postponeTarget by remember { mutableStateOf<PostponeTarget?>(null) }
     var showExtraClassDialog by remember { mutableStateOf(false) }
     var allCourses by remember { mutableStateOf<List<CourseScheduleResponse>>(emptyList()) }
@@ -291,6 +292,21 @@ fun TeacherClassesScreen(
 
             val loadedSchedule = state as? ScheduleUiState.Loaded
             val todayClassesCount = loadedSchedule?.classes?.size ?: 0
+            val expectedStudentsCount = remember(loadedSchedule) {
+                loadedSchedule?.classes?.sumOf { cls ->
+                    TeacherCacheManager.loadRoster(cls.course_offering_id)?.size ?: 0
+                }
+            }
+
+            val pendingLoaded = pendingState as? PendingUiState.Loaded
+            val pendingCourses = remember(pendingLoaded) {
+                pendingLoaded?.pendingClasses?.distinctBy { it.course_offering_id } ?: emptyList()
+            }
+            val filteredPendingClasses = remember(pendingLoaded, selectedPendingOfferingId) {
+                val list = pendingLoaded?.pendingClasses ?: emptyList()
+                if (selectedPendingOfferingId == null) list
+                else list.filter { it.course_offering_id == selectedPendingOfferingId }
+            }
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -311,7 +327,7 @@ fun TeacherClassesScreen(
                         s.classes.count { s.submittedOfferingIds.contains(it.course_offering_id) }
                     } ?: 0
 
-                    item { DailyProgressSection(completedCount, todayClassesCount) }
+                    item { DailyProgressSection(completedCount, todayClassesCount, expectedStudentsCount) }
 
                     item {
                         SectionHeader(
@@ -387,10 +403,10 @@ fun TeacherClassesScreen(
                                             postponeTarget = PostponeTarget(offId, subName, secName, dt)
                                         },
                                         onStartRollCall = { offeringId ->
-                                            onStartRollCall(offeringId, null)
+                                            onStartRollCall(offeringId, EffectiveDate.toString(), course.batch_label)
                                         },
                                         onViewDetails = { offeringId ->
-                                            onStartRollCall(offeringId, EffectiveDate.toString())
+                                            onStartRollCall(offeringId, EffectiveDate.toString(), course.batch_label)
                                         }
                                     )
                                 }
@@ -431,6 +447,55 @@ fun TeacherClassesScreen(
                             if (pState.pendingClasses.isEmpty()) {
                                 item { AllCaughtUpCard() }
                             } else {
+
+                                // Class Filter Chips (when multiple classes exist)
+                                if (pendingCourses.size > 1) {
+                                    item {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            FilterChip(
+                                                selected = selectedPendingOfferingId == null,
+                                                onClick = { selectedPendingOfferingId = null },
+                                                label = {
+                                                    Text(
+                                                        text = "All Classes (${pState.pendingClasses.size})",
+                                                        fontSize = 12.sp
+                                                    )
+                                                },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = PrimaryBlue,
+                                                    selectedLabelColor = Color.White
+                                                )
+                                            )
+
+                                            pendingCourses.forEach { course ->
+                                                val isSelected = selectedPendingOfferingId == course.course_offering_id
+                                                val coursePendingCount = pState.pendingClasses.count { it.course_offering_id == course.course_offering_id }
+                                                FilterChip(
+                                                    selected = isSelected,
+                                                    onClick = {
+                                                        selectedPendingOfferingId = if (isSelected) null else course.course_offering_id
+                                                    },
+                                                    label = {
+                                                        Text(
+                                                            text = "${course.subject_code} • ${course.section_name} ($coursePendingCount)",
+                                                            fontSize = 12.sp
+                                                        )
+                                                    },
+                                                    colors = FilterChipDefaults.filterChipColors(
+                                                        selectedContainerColor = PrimaryBlue,
+                                                        selectedLabelColor = Color.White
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
                                 item {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -444,7 +509,7 @@ fun TeacherClassesScreen(
                                             color = Color(0xFF0F172A)
                                         )
                                         Text(
-                                            text = "${pState.pendingClasses.size} pending",
+                                            text = "${filteredPendingClasses.size} pending",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = Color(0xFFB45309)
@@ -452,14 +517,50 @@ fun TeacherClassesScreen(
                                     }
                                 }
 
-                                items(pState.pendingClasses) { item ->
-                                    PendingClassCard(
-                                        item = item,
-                                        onStartRollCall = onStartRollCall,
-                                        onPostpone = { offId, dt, subName, secName ->
-                                            postponeTarget = PostponeTarget(offId, subName, secName, dt)
+                                if (filteredPendingClasses.isEmpty()) {
+                                    item {
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color.White,
+                                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(24.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.CheckCircle,
+                                                    contentDescription = null,
+                                                    tint = SemanticGreen,
+                                                    modifier = Modifier.size(32.dp)
+                                                )
+                                                Spacer(Modifier.height(8.dp))
+                                                Text(
+                                                    text = "No pending sessions for this class",
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF1E293B)
+                                                )
+                                                Text(
+                                                    text = "All past attendance records for this class have been submitted.",
+                                                    fontSize = 12.sp,
+                                                    color = Color(0xFF64748B),
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
                                         }
-                                    )
+                                    }
+                                } else {
+                                    items(filteredPendingClasses) { item ->
+                                        PendingClassCard(
+                                            item = item,
+                                            onStartRollCall = onStartRollCall,
+                                            onPostpone = { offId, dt, subName, secName ->
+                                                postponeTarget = PostponeTarget(offId, subName, secName, dt)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -497,7 +598,7 @@ fun TeacherClassesScreen(
             onDismiss = { showExtraClassDialog = false },
             onStartExtraClass = { offeringId, date ->
                 showExtraClassDialog = false
-                onStartRollCall(offeringId, date)
+                onStartRollCall(offeringId, date, null)
             }
         )
     }
@@ -615,7 +716,7 @@ private fun TeacherProfileHeader(teacherName: String?) {
 }
 
 @Composable
-private fun DailyProgressSection(completed: Int, total: Int) {
+private fun DailyProgressSection(completed: Int, total: Int, expectedStudents: Int? = null) {
     val progress = if (total > 0) completed.toFloat() / total.toFloat() else 0f
     val progressPercent = (progress * 100).toInt()
 
@@ -645,12 +746,13 @@ private fun DailyProgressSection(completed: Int, total: Int) {
                 title = "$completed of $total",
                 subtitle = "Conducted"
             )
+            val expectedText = if (total == 0) "0" else expectedStudents?.takeIf { it > 0 }?.toString() ?: "—"
             ProgressStatCard(
                 modifier = Modifier.weight(1f),
                 icon = Icons.Outlined.PeopleAlt,
                 iconBg = Color(0xFFFFF9C4),
                 iconTint = Color(0xFFF57F17),
-                title = "184", // Replace with actual expected student count logic if needed
+                title = expectedText,
                 subtitle = "Expected Today"
             )
         }
@@ -760,14 +862,16 @@ private fun ClassCard(
             Box(modifier = Modifier.fillMaxHeight().width(6.dp).background(indicatorColor))
 
             Column(Modifier.padding(16.dp)) {
-                // Top Row: Code, Section & Status Badge
+                // Top Row: Code, Credits, Type, Duration & Status Badge
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(shape = RoundedCornerShape(6.dp), color = LightBlueBg) {
@@ -776,7 +880,9 @@ private fun ClassCard(
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = PrimaryBlue,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                         Spacer(modifier = Modifier.width(4.dp))
@@ -786,7 +892,9 @@ private fun ClassCard(
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 3.dp),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color(0xFF334155),
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                         if (course.course_type != null && course.course_type != "LECTURE") {
@@ -798,22 +906,29 @@ private fun ClassCard(
                                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 3.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (isLab) Color(0xFF047857) else Color(0xFF7E22CE),
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            "Sec ${course.section_name}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextGray,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        if (course.duration_periods > 1) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFEFF6FF)) {
+                                Text(
+                                    "${course.duration_periods} Periods",
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 3.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = PrimaryBlue,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
                     when (state) {
                         ClassState.SUBMITTED -> StatusBadge("Submitted", Color(0xFFDCFCE7), Color(0xFF166534), Icons.Default.CheckCircle)
@@ -824,7 +939,31 @@ private fun ClassCard(
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
-                Text(course.subject_name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        course.subject_name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (!course.batch_label.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFFEF3C7)) {
+                            Text(
+                                course.batch_label,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFB45309),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Time Row
@@ -844,11 +983,41 @@ private fun ClassCard(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Room
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.MeetingRoom, contentDescription = null, modifier = Modifier.size(16.dp), tint = TextGray)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(course.room ?: "Room 302, Engineering Block", style = MaterialTheme.typography.bodySmall, color = TextGray) // Fallback for UI matching
+                // Room & Section Row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f, fill = false)
+                    ) {
+                        Icon(Icons.Default.MeetingRoom, contentDescription = null, modifier = Modifier.size(16.dp), tint = TextGray)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = course.room ?: "Campus Room",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextGray,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFF1F5F9)
+                    ) {
+                        Text(
+                            text = "Sec: ${course.section_name}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF475569),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -1028,18 +1197,12 @@ private fun DashboardTabSelector(
                     )
                     if (pendingCount > 0) {
                         Spacer(modifier = Modifier.width(6.dp))
-                        Surface(
-                            shape = CircleShape,
-                            color = if (selectedTab == 1) Color(0xFFDC2626) else Color(0xFFEA580C)
-                        ) {
-                            Text(
-                                text = "$pendingCount",
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                            )
-                        }
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFDC2626))
+                        )
                     }
                 }
             }
@@ -1095,7 +1258,7 @@ private fun AllCaughtUpCard() {
 @Composable
 private fun PendingClassCard(
     item: PendingClassResponse,
-    onStartRollCall: (Int, String?) -> Unit,
+    onStartRollCall: (Int, String?, String?) -> Unit,
     onPostpone: (Int, String, String, String) -> Unit
 ) {
     Card(
@@ -1103,10 +1266,10 @@ private fun PendingClassCard(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, if (item.is_expiring_soon) Color(0xFFFCA5A5) else Color(0xFFE2E8F0))
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Row 1: Course Code, Course Name + Expiration Badge
+            // Row 1: Course Code, Course Name + Batch Badge (G-1 / G-2 in front of Lab)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1119,27 +1282,36 @@ private fun PendingClassCard(
                         fontWeight = FontWeight.Bold,
                         color = PrimaryBlue
                     )
-                    Text(
-                        text = item.subject_name,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1E293B),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (item.is_expiring_soon) Color(0xFFFEE2E2) else Color(0xFFFEF3C7)
-                ) {
-                    Text(
-                        text = if (item.is_expiring_soon) "Expiring \u2022 ${item.days_remaining}d left" else "${item.days_remaining}d left",
-                        color = if (item.is_expiring_soon) Color(0xFFB91C1C) else Color(0xFFB45309),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = item.subject_name,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E293B),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (!item.batch_label.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFFEF3C7)
+                            ) {
+                                Text(
+                                    text = item.batch_label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB45309),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1168,17 +1340,36 @@ private fun PendingClassCard(
                         color = Color(0xFF1E293B)
                     )
                 }
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFFF1F5F9)
-                ) {
-                    Text(
-                        text = "Sec: ${item.section_name}",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF475569),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (item.duration_periods > 1) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFEFF6FF)
+                        ) {
+                            Text(
+                                text = "${item.duration_periods} Periods",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryBlue,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFF1F5F9)
+                    ) {
+                        Text(
+                            text = "Sec: ${item.section_name}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF475569),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
 
@@ -1229,7 +1420,7 @@ private fun PendingClassCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
-                    onClick = { onStartRollCall(item.course_offering_id, item.date) },
+                    onClick = { onStartRollCall(item.course_offering_id, item.date, item.batch_label) },
                     modifier = Modifier.weight(1f).height(42.dp),
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)

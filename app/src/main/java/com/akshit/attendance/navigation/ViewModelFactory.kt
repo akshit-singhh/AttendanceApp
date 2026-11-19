@@ -20,7 +20,10 @@ class ViewModelFactory(private val app: AttendanceApp) : ViewModelProvider.Facto
             repo = app.teacherRepository,
             tokenManager = app.tokenManager
         ) as T
-        ProfileViewModel::class.java -> ProfileViewModel(repo = app.authRepository) as T
+        ProfileViewModel::class.java -> ProfileViewModel(
+            repo = app.authRepository,
+            tokenManager = app.tokenManager
+        ) as T
         else -> throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")
     }
 }

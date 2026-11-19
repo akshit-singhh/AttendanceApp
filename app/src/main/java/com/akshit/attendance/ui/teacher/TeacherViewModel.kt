@@ -197,17 +197,20 @@ class TeacherViewModel(
             if (isRefresh) {
                 _schedule.value = ScheduleUiState.Loading
             } else {
-                // ── Step 1: Show cached data instantly (zero-latency, works fully offline) ──
+                // ── Step 1: Show cached data instantly only if it matches today's day of week ──
                 val cached = TeacherCacheManager.loadSchedule()
-                cached.forEach { courseInfoCache[it.course_offering_id] = it }
-                if (cached.isNotEmpty()) {
+                val isCacheForToday = TeacherCacheManager.isScheduleCacheForToday()
+                val dayMatches = cached.all { it.day_of_week.isNullOrBlank() || it.day_of_week.equals(EffectiveDay, ignoreCase = true) }
+
+                if (cached.isNotEmpty() && (isCacheForToday || dayMatches)) {
+                    cached.forEach { courseInfoCache[it.course_offering_id] = it }
                     val queuedIds = OfflineAttendanceManager.submittedOfferingIds.value
                     val persistentSubmitted = TeacherCacheManager.getSubmittedOfferingIdsForDate(todayStr)
                     _schedule.value = ScheduleUiState.Loaded(
                         classes = cached,
                         submittedOfferingIds = persistentSubmitted + queuedIds,
                         teacherName = teacherName,
-                        fromCache = !TeacherCacheManager.isScheduleCacheForToday()
+                        fromCache = !isCacheForToday
                     )
                 } else {
                     _schedule.value = ScheduleUiState.Loading
@@ -273,6 +276,7 @@ class TeacherViewModel(
     fun loadRoster(
         courseOfferingId: Int,
         sessionDate: String? = null,
+        batchLabel: String? = null,
         customCourseInfo: CourseScheduleResponse? = null
     ) {
         activeCourseOfferingId = courseOfferingId
@@ -280,14 +284,14 @@ class TeacherViewModel(
         _roster.value = RosterUiState.Loading
         viewModelScope.launch {
             val targetDate = sessionDate ?: EffectiveDate.toString()
-            var courseInfo = customCourseInfo ?: courseInfoCache[courseOfferingId]
+            var courseInfo = customCourseInfo ?: resolvecourseInfo(courseOfferingId, null, targetDate, batchLabel)
+            if (batchLabel != null && courseInfo != null) {
+                courseInfo = courseInfo.copy(batch_label = batchLabel)
+            }
 
             // ── Step 1: Show cached roster instantly ──
             val cachedRoster = TeacherCacheManager.loadRoster(courseOfferingId)
             if (cachedRoster != null) {
-                if (courseInfo == null) {
-                    courseInfo = resolvecourseInfo(courseOfferingId, customCourseInfo)
-                }
                 val marksMap = cachedRoster.associate { it.student_id to it.status }
                 _roster.value = RosterUiState.Loaded(
                     roster = cachedRoster,
@@ -300,9 +304,12 @@ class TeacherViewModel(
 
             // ── Step 2: Try to fetch fresh roster from network ──
             try {
-                val freshRoster = repo.getRoster(courseOfferingId, targetDate)
+                val freshRoster = repo.getRoster(courseOfferingId, targetDate, batchLabel)
                 if (courseInfo == null) {
-                    courseInfo = resolvecourseInfo(courseOfferingId, customCourseInfo)
+                    courseInfo = resolvecourseInfo(courseOfferingId, customCourseInfo, targetDate, batchLabel)
+                }
+                if (batchLabel != null && courseInfo != null) {
+                    courseInfo = courseInfo.copy(batch_label = batchLabel)
                 }
                 val marksMap = freshRoster.associate { it.student_id to it.status }
                 _roster.value = RosterUiState.Loaded(
@@ -329,13 +336,111 @@ class TeacherViewModel(
     /** Resolves CourseScheduleResponse from memory, active schedule, disk cache, network schedule, or session history. */
     private suspend fun resolvecourseInfo(
         courseOfferingId: Int,
-        customCourseInfo: CourseScheduleResponse?
+        customCourseInfo: CourseScheduleResponse?,
+        targetDate: String? = null,
+        batchLabel: String? = null
     ): CourseScheduleResponse? {
         if (customCourseInfo != null) {
             courseInfoCache[courseOfferingId] = customCourseInfo
             return customCourseInfo
         }
-        courseInfoCache[courseOfferingId]?.let { return it }
+
+        val targetDow = if (targetDate != null) {
+            try {
+                java.time.LocalDate.parse(targetDate).dayOfWeek.name.take(3)
+            } catch (_: Exception) { null }
+        } else null
+
+        // 1. If batchLabel is provided, search matching slot by both targetDate/dayOfWeek AND batchLabel
+        if (batchLabel != null) {
+            val pendingList = (_pending.value as? PendingUiState.Loaded)?.pendingClasses
+            val pendingMatch = pendingList?.find {
+                it.course_offering_id == courseOfferingId &&
+                (targetDate == null || it.date == targetDate) &&
+                it.batch_label?.equals(batchLabel, ignoreCase = true) == true
+            }
+            if (pendingMatch != null) {
+                return CourseScheduleResponse(
+                    course_offering_id = pendingMatch.course_offering_id,
+                    subject_name = pendingMatch.subject_name,
+                    subject_code = pendingMatch.subject_code,
+                    section_name = pendingMatch.section_name,
+                    start_time = pendingMatch.start_time,
+                    end_time = pendingMatch.end_time,
+                    room = pendingMatch.room,
+                    duration_periods = pendingMatch.duration_periods,
+                    batch_label = pendingMatch.batch_label,
+                    day_of_week = pendingMatch.day_of_week
+                )
+            }
+
+            val diskSchedule = TeacherCacheManager.loadSchedule()
+            val diskExact = diskSchedule.find {
+                it.course_offering_id == courseOfferingId &&
+                (targetDow == null || it.day_of_week?.equals(targetDow, ignoreCase = true) == true) &&
+                it.batch_label?.equals(batchLabel, ignoreCase = true) == true
+            }
+            if (diskExact != null) return diskExact
+
+            try {
+                val allSchedule = repo.getSchedule(null, "ALL")
+                val allExact = allSchedule.find {
+                    it.course_offering_id == courseOfferingId &&
+                    (targetDow == null || it.day_of_week?.equals(targetDow, ignoreCase = true) == true) &&
+                    it.batch_label?.equals(batchLabel, ignoreCase = true) == true
+                }
+                if (allExact != null) return allExact
+            } catch (_: Exception) {}
+        }
+
+        // 2. If targetDate is specified, prioritize matching the exact pending class or day-of-week slot
+        if (targetDate != null) {
+            val pendingList = (_pending.value as? PendingUiState.Loaded)?.pendingClasses
+            val pendingFound = pendingList?.find { it.course_offering_id == courseOfferingId && it.date == targetDate }
+            if (pendingFound != null) {
+                return CourseScheduleResponse(
+                    course_offering_id = pendingFound.course_offering_id,
+                    subject_name = pendingFound.subject_name,
+                    subject_code = pendingFound.subject_code,
+                    section_name = pendingFound.section_name,
+                    start_time = pendingFound.start_time,
+                    end_time = pendingFound.end_time,
+                    room = pendingFound.room,
+                    duration_periods = pendingFound.duration_periods,
+                    batch_label = pendingFound.batch_label,
+                    day_of_week = pendingFound.day_of_week
+                )
+            }
+
+            if (targetDow != null) {
+                // Check in memory schedule
+                val sched = _schedule.value
+                if (sched is ScheduleUiState.Loaded) {
+                    val found = sched.classes.find {
+                        it.course_offering_id == courseOfferingId && it.day_of_week?.equals(targetDow, ignoreCase = true) == true
+                    }
+                    if (found != null) return found
+                }
+
+                // Check cached disk schedule
+                val diskSchedule = TeacherCacheManager.loadSchedule()
+                val diskFound = diskSchedule.find {
+                    it.course_offering_id == courseOfferingId && it.day_of_week?.equals(targetDow, ignoreCase = true) == true
+                }
+                if (diskFound != null) return diskFound
+
+                // Query all schedule items from repository
+                try {
+                    val allSchedule = repo.getSchedule(null, "ALL")
+                    val found = allSchedule.find {
+                        it.course_offering_id == courseOfferingId && it.day_of_week?.equals(targetDow, ignoreCase = true) == true
+                    }
+                    if (found != null) return found
+                } catch (_: Exception) {}
+            }
+        }
+
+        courseInfoCache[courseOfferingId]?.let { return if (batchLabel != null) it.copy(batch_label = batchLabel) else it }
 
         val sched = _schedule.value
         if (sched is ScheduleUiState.Loaded) {
@@ -359,6 +464,25 @@ class TeacherViewModel(
             val found = allSchedule.find { it.course_offering_id == courseOfferingId }
             if (found != null) return found
         } catch (_: Exception) {}
+
+        // Check pending classes
+        val pendingList = (_pending.value as? PendingUiState.Loaded)?.pendingClasses
+        val pendingFound = pendingList?.find { it.course_offering_id == courseOfferingId }
+        if (pendingFound != null) {
+            val synthesized = CourseScheduleResponse(
+                course_offering_id = pendingFound.course_offering_id,
+                subject_name = pendingFound.subject_name,
+                subject_code = pendingFound.subject_code,
+                section_name = pendingFound.section_name,
+                start_time = pendingFound.start_time,
+                end_time = pendingFound.end_time,
+                room = pendingFound.room,
+                duration_periods = pendingFound.duration_periods,
+                batch_label = pendingFound.batch_label
+            )
+            courseInfoCache[courseOfferingId] = synthesized
+            return synthesized
+        }
 
         // Fallback: Reconstruct basic course info from session history
         try {
@@ -405,17 +529,64 @@ class TeacherViewModel(
         }
     }
 
-    fun markAll(status: AttendanceStatus?) {
+    fun markAll(status: AttendanceStatus?, targetStudentIds: Set<Int>? = null) {
         val current = _roster.value
         if (current is RosterUiState.Loaded) {
-            _roster.value = current.copy(marks = current.roster.associate { it.student_id to status })
+            val newMarks = current.marks.toMutableMap()
+            val targets = if (targetStudentIds != null) {
+                current.roster.filter { it.student_id in targetStudentIds }
+            } else {
+                current.roster
+            }
+            targets.forEach { student ->
+                if (status == null) {
+                    newMarks.remove(student.student_id)
+                } else {
+                    newMarks[student.student_id] = status
+                }
+            }
+            _roster.value = current.copy(marks = newMarks)
         }
     }
 
-    fun submitAttendance(durationPeriods: Int = 1, defaultUnmarkedTo: AttendanceStatus = AttendanceStatus.ABSENT) {
+    fun updateStudentGroup(studentId: Int, newGroup: String) {
+        val offeringId = activeCourseOfferingId ?: return
+        val current = _roster.value as? RosterUiState.Loaded ?: return
+        val updatedRoster = current.roster.map {
+            if (it.student_id == studentId) it.copy(lab_group = newGroup) else it
+        }
+        _roster.value = current.copy(roster = updatedRoster)
+        TeacherCacheManager.saveRoster(offeringId, updatedRoster)
+        viewModelScope.launch {
+            try {
+                repo.updateStudentLabGroup(offeringId, studentId, newGroup)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun submitAttendance(
+        durationPeriods: Int? = null,
+        batchLabel: String? = null,
+        defaultUnmarkedTo: AttendanceStatus = AttendanceStatus.ABSENT,
+        targetStudentIds: Set<Int>? = null
+    ) {
         val current = _roster.value
         val courseOfferingId = activeCourseOfferingId
         if (current !is RosterUiState.Loaded || courseOfferingId == null) return
+
+        val resolvedDuration = durationPeriods
+            ?: current.courseInfo?.duration_periods
+            ?: courseInfoCache[courseOfferingId]?.duration_periods
+            ?: 1
+
+        val resolvedBatchLabel = batchLabel
+            ?: current.courseInfo?.batch_label
+
+        val submittingStudents = if (targetStudentIds != null) {
+            current.roster.filter { it.student_id in targetStudentIds }
+        } else {
+            current.roster
+        }
 
         _submit.value = SubmitUiState.Submitting
         viewModelScope.launch {
@@ -426,8 +597,9 @@ class TeacherViewModel(
                 session_uuid = UUID.randomUUID().toString(),
                 course_offering_id = courseOfferingId,
                 date = targetDate,
-                duration_periods = durationPeriods,
-                records = current.roster.map { student ->
+                duration_periods = resolvedDuration,
+                batch_label = resolvedBatchLabel,
+                records = submittingStudents.map { student ->
                     val finalStatus = current.marks[student.student_id] ?: defaultUnmarkedTo
                     SyncRecordItem(
                         record_uuid = UUID.randomUUID().toString(),
@@ -441,8 +613,12 @@ class TeacherViewModel(
                 val response = repo.submitAttendance(payload)
                 TeacherCacheManager.recordSubmittedClass(courseOfferingId, targetDate)
                 val updatedRoster = current.roster.map { student ->
-                    val finalStatus = current.marks[student.student_id] ?: defaultUnmarkedTo
-                    student.copy(status = finalStatus)
+                    if (targetStudentIds == null || student.student_id in targetStudentIds) {
+                        val finalStatus = current.marks[student.student_id] ?: defaultUnmarkedTo
+                        student.copy(status = finalStatus)
+                    } else {
+                        student
+                    }
                 }
                 TeacherCacheManager.saveRoster(courseOfferingId, updatedRoster)
                 val currentSched = _schedule.value
@@ -457,8 +633,12 @@ class TeacherViewModel(
                 // If offline or network/server submission fails, queue in OfflineAttendanceManager
                 TeacherCacheManager.recordSubmittedClass(courseOfferingId, targetDate)
                 val updatedRoster = current.roster.map { student ->
-                    val finalStatus = current.marks[student.student_id] ?: defaultUnmarkedTo
-                    student.copy(status = finalStatus)
+                    if (targetStudentIds == null || student.student_id in targetStudentIds) {
+                        val finalStatus = current.marks[student.student_id] ?: defaultUnmarkedTo
+                        student.copy(status = finalStatus)
+                    } else {
+                        student
+                    }
                 }
                 TeacherCacheManager.saveRoster(courseOfferingId, updatedRoster)
                 OfflineAttendanceManager.enqueue(payload)

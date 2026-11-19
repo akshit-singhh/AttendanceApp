@@ -6,19 +6,21 @@ import com.akshit.attendance.data.network.ApiService
 interface TeacherRepository {
     suspend fun getSchedule(termId: Int? = null, day: String? = null): List<CourseScheduleResponse>
     suspend fun getPendingClasses(): List<PendingClassResponse>
-    suspend fun getRoster(courseOfferingId: Int, date: String? = null): List<StudentRosterResponse>
+    suspend fun getRoster(courseOfferingId: Int, date: String? = null, batchLabel: String? = null): List<StudentRosterResponse>
     suspend fun submitAttendance(payload: OfflineSyncPayload): SyncResponse
     suspend fun getHistory(): List<SessionHistoryResponse>
     suspend fun submitCorrectionRequest(request: CorrectionRequestCreate): SimpleStatus
     suspend fun postponeClass(offeringId: Int, date: String, reason: String): SimpleStatus
     suspend fun getTimetable(teacherName: String? = null, facultyId: String? = null): TeacherTimetableResponse
     suspend fun getProfile(): UserProfileResponse
+    suspend fun getCourseStudentsSummary(courseOfferingId: Int, threshold: Double? = null): List<StudentAttendanceSummary>
+    suspend fun updateStudentLabGroup(courseOfferingId: Int, studentId: Int, labGroup: String): SimpleStatus
 }
 
 class RealTeacherRepository(private val api: ApiService) : TeacherRepository {
     override suspend fun getSchedule(termId: Int?, day: String?) = api.getSchedule(termId, day)
     override suspend fun getPendingClasses() = api.getPendingClasses()
-    override suspend fun getRoster(courseOfferingId: Int, date: String?) = api.getRoster(courseOfferingId, date)
+    override suspend fun getRoster(courseOfferingId: Int, date: String?, batchLabel: String?) = api.getRoster(courseOfferingId, date, batchLabel)
     override suspend fun submitAttendance(payload: OfflineSyncPayload) = api.syncAttendance(payload)
     override suspend fun getHistory() = api.getAttendanceHistory()
     override suspend fun submitCorrectionRequest(request: CorrectionRequestCreate) = api.submitCorrection(request)
@@ -27,6 +29,10 @@ class RealTeacherRepository(private val api: ApiService) : TeacherRepository {
     override suspend fun getTimetable(teacherName: String?, facultyId: String?) =
         api.getTeacherTimetable(teacherName, facultyId)
     override suspend fun getProfile(): UserProfileResponse = api.getMyProfile()
+    override suspend fun getCourseStudentsSummary(courseOfferingId: Int, threshold: Double?) =
+        api.getCourseStudentsSummary(courseOfferingId, threshold)
+    override suspend fun updateStudentLabGroup(courseOfferingId: Int, studentId: Int, labGroup: String) =
+        api.updateStudentLabGroup(courseOfferingId, studentId, labGroup)
 }
 
 /** Sample data for UI work while fully offline. */
@@ -63,7 +69,7 @@ class MockTeacherRepository : TeacherRepository {
 
     override suspend fun getPendingClasses(): List<PendingClassResponse> = emptyList()
 
-    override suspend fun getRoster(courseOfferingId: Int, date: String?) = listOf(
+    override suspend fun getRoster(courseOfferingId: Int, date: String?, batchLabel: String?) = listOf(
         StudentRosterResponse(1, "21CS001", "Aarav Patel"),
         StudentRosterResponse(2, "21CS002", "Ananya Iyer"),
         StudentRosterResponse(3, "21CS003", "Devendra Kumar"),
@@ -153,4 +159,15 @@ class MockTeacherRepository : TeacherRepository {
         school = "School of Information and Communication Technology",
         roles = listOf("TEACHER")
     )
+
+    override suspend fun getCourseStudentsSummary(courseOfferingId: Int, threshold: Double?): List<StudentAttendanceSummary> = listOf(
+        StudentAttendanceSummary(1, "21CS001", "Aarav Patel", 16, 8, 50.0, 8),
+        StudentAttendanceSummary(2, "21CS002", "Ananya Iyer", 16, 10, 62.5, 4),
+        StudentAttendanceSummary(3, "21CS003", "Devendra Kumar", 16, 11, 68.8, 2),
+        StudentAttendanceSummary(4, "21CS004", "Fatima Zahra", 16, 13, 81.3, 0),
+        StudentAttendanceSummary(5, "21CS005", "Ishaan Verma", 16, 15, 93.8, 0),
+    ).filter { threshold == null || it.attendance_percentage < threshold }
+
+    override suspend fun updateStudentLabGroup(courseOfferingId: Int, studentId: Int, labGroup: String) =
+        SimpleStatus("success", "Lab group updated")
 }

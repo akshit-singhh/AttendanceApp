@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.akshit.attendance.data.model.CourseScheduleResponse
 import com.akshit.attendance.data.model.SessionHistoryResponse
+import com.akshit.attendance.data.model.StudentAttendanceSummary
 import com.akshit.attendance.data.model.StudentRosterResponse
 import com.akshit.attendance.data.model.TeacherTimetableResponse
 import com.akshit.attendance.data.model.UserProfileResponse
@@ -38,10 +39,12 @@ object TeacherCacheManager {
     private const val TAG = "TeacherCacheManager"
     private const val SCHEDULE_FILE = "teacher_schedule_cache.json"
     private const val ROSTER_FILE_PREFIX = "roster_cache_"
+    private const val STUDENTS_SUMMARY_PREFIX = "students_summary_"
     private const val DATE_STAMP_FILE = "teacher_schedule_date.txt"
     private const val TIMETABLE_FILE = "teacher_timetable_cache.json"
     private const val HISTORY_FILE = "teacher_history_cache.json"
-    private const val PROFILE_FILE = "user_profile_cache.json"
+    private const val PROFILE_FILE = "teacher_profile_cache.json"
+    private const val LEGACY_PROFILE_FILE = "user_profile_cache.json"
     private const val SUBMITTED_CLASSES_FILE = "teacher_submitted_classes.json"
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -159,6 +162,32 @@ object TeacherCacheManager {
         }
     }
 
+    // ─── Students Summary Cache (For Analytics & Defaulters) ──────────────────
+
+    fun loadStudentsSummary(courseOfferingId: Int): List<StudentAttendanceSummary> {
+        val ctx = appContext ?: return emptyList()
+        return try {
+            val file = File(ctx.filesDir, "$STUDENTS_SUMMARY_PREFIX$courseOfferingId.json")
+            if (!file.exists()) return emptyList()
+            json.decodeFromString<List<StudentAttendanceSummary>>(file.readText())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading students summary cache for $courseOfferingId", e)
+            emptyList()
+        }
+    }
+
+    fun saveStudentsSummary(courseOfferingId: Int, list: List<StudentAttendanceSummary>) {
+        val ctx = appContext ?: return
+        scope.launch {
+            try {
+                val file = File(ctx.filesDir, "$STUDENTS_SUMMARY_PREFIX$courseOfferingId.json")
+                file.writeText(json.encodeToString(list))
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving students summary cache for $courseOfferingId", e)
+            }
+        }
+    }
+
     // ─── Timetable Cache ─────────────────────────────────────────────────────
 
     fun loadTimetable(): TeacherTimetableResponse? {
@@ -217,8 +246,21 @@ object TeacherCacheManager {
         val ctx = appContext ?: return null
         return try {
             val file = File(ctx.filesDir, PROFILE_FILE)
-            if (!file.exists()) return null
-            json.decodeFromString<UserProfileResponse>(file.readText())
+            val candidate = if (file.exists()) {
+                json.decodeFromString<UserProfileResponse>(file.readText())
+            } else {
+                val legacyFile = File(ctx.filesDir, LEGACY_PROFILE_FILE)
+                if (legacyFile.exists()) {
+                    val legacy = json.decodeFromString<UserProfileResponse>(legacyFile.readText())
+                    legacyFile.delete()
+                    legacy
+                } else null
+            }
+            if (candidate != null && (candidate.roles.any { it.equals("TEACHER", ignoreCase = true) || it.uppercase() in listOf("COORDINATOR", "HOD", "DEAN", "ADMIN") } || !candidate.employee_code.isNullOrBlank())) {
+                candidate
+            } else {
+                null
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error reading profile cache", e)
             null
@@ -229,11 +271,31 @@ object TeacherCacheManager {
         val ctx = appContext ?: return
         scope.launch {
             try {
+                val legacyFile = File(ctx.filesDir, LEGACY_PROFILE_FILE)
+                if (legacyFile.exists()) legacyFile.delete()
                 File(ctx.filesDir, PROFILE_FILE).writeText(json.encodeToString(profile))
-                Log.d(TAG, "Profile cache saved")
+                Log.d(TAG, "Teacher profile cache saved")
             } catch (e: Exception) {
                 Log.e(TAG, "Error saving profile cache", e)
             }
+        }
+    }
+
+    fun clearAll() {
+        val ctx = appContext ?: return
+        try {
+            File(ctx.filesDir, SCHEDULE_FILE).delete()
+            File(ctx.filesDir, DATE_STAMP_FILE).delete()
+            File(ctx.filesDir, TIMETABLE_FILE).delete()
+            File(ctx.filesDir, HISTORY_FILE).delete()
+            File(ctx.filesDir, PROFILE_FILE).delete()
+            File(ctx.filesDir, LEGACY_PROFILE_FILE).delete()
+            ctx.filesDir.listFiles { _, name ->
+                name.startsWith(ROSTER_FILE_PREFIX) || name.startsWith(STUDENTS_SUMMARY_PREFIX)
+            }?.forEach { it.delete() }
+            Log.d(TAG, "Teacher offline cache cleared")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing teacher cache", e)
         }
     }
 
