@@ -7,9 +7,11 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.util.Log
 import com.akshit.attendance.data.model.OfflineSyncPayload
+import com.akshit.attendance.data.network.ApiConfig
 import com.akshit.attendance.data.repository.TeacherRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,13 +20,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Manages the offline attendance submission queue and monitors network connectivity.
- * Automatically saves failed/offline session submissions and drains the queue when connectivity is restored.
+ * Automatically saves failed/offline session submissions, probes server health to
+ * auto-reconnect as soon as the backend comes online, and drains the queue.
  */
 object OfflineAttendanceManager {
 
@@ -34,6 +41,12 @@ object OfflineAttendanceManager {
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val mutex = Mutex()
+
+    // Fast-timeout client dedicated to probing backend server availability
+    private val healthClient = OkHttpClient.Builder()
+        .connectTimeout(2500, TimeUnit.MILLISECONDS)
+        .readTimeout(2500, TimeUnit.MILLISECONDS)
+        .build()
 
     @Volatile
     private var appContext: Context? = null
@@ -47,6 +60,9 @@ object OfflineAttendanceManager {
 
     private val _isOnline = MutableStateFlow(true)
     val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
+
+    private val _isConnecting = MutableStateFlow(false)
+    val isConnecting: StateFlow<Boolean> = _isConnecting.asStateFlow()
 
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
@@ -179,6 +195,8 @@ object OfflineAttendanceManager {
         }
     }
 
+    private var autoReconnectJob: Job? = null
+
     private fun setupConnectivityMonitoring(context: Context) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
 
@@ -195,21 +213,23 @@ object OfflineAttendanceManager {
         try {
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    Log.d(TAG, "Connectivity restored: network available")
-                    _isOnline.value = true
-                    triggerAutoSync()
+                    Log.d(TAG, "Network interface available")
+                    onNetworkRestored()
                 }
 
                 override fun onLost(network: Network) {
-                    Log.d(TAG, "Connectivity lost: network unavailable")
+                    Log.d(TAG, "Network interface lost")
+                    autoReconnectJob?.cancel()
                     _isOnline.value = false
                 }
 
                 override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                     val hasInternet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                    _isOnline.value = hasInternet
-                    if (hasInternet && _queuedCount.value > 0) {
-                        triggerAutoSync()
+                    if (!hasInternet) {
+                        autoReconnectJob?.cancel()
+                        _isOnline.value = false
+                    } else if (!_isOnline.value) {
+                        onNetworkRestored()
                     }
                 }
             })
@@ -218,8 +238,92 @@ object OfflineAttendanceManager {
         }
     }
 
+    /**
+     * Debounces Android OS network change callbacks so multiple rapid capability events
+     * collapse into a single reachability check when internet is restored.
+     */
+    private fun onNetworkRestored() {
+        if (_isOnline.value) return
+        autoReconnectJob?.cancel()
+        autoReconnectJob = scope.launch {
+            delay(800L)
+            if (!_isOnline.value) {
+                val isHealthy = try {
+                    probeServer()
+                } catch (_: Exception) {
+                    false
+                }
+                if (isHealthy) {
+                    markOnline()
+                }
+            }
+        }
+    }
+
+    /**
+     * Performs an on-demand fast HTTP GET request to check whether the backend is up.
+     * Triggered strictly on user interaction (e.g. tapping "Tap to reconnect" on the banner).
+     * Enforces a minimum smooth duration (~700ms) so users get clear, non-flickering visual feedback.
+     */
+    fun checkServerHealth(onResult: ((Boolean) -> Unit)? = null) {
+        if (_isConnecting.value) return
+        scope.launch {
+            _isConnecting.value = true
+            val startTime = System.currentTimeMillis()
+            val isHealthy = try {
+                probeServer()
+            } catch (_: Exception) {
+                false
+            }
+            val elapsed = System.currentTimeMillis() - startTime
+            if (elapsed < 700L) {
+                delay(700L - elapsed)
+            }
+            if (isHealthy) {
+                markOnline()
+            }
+            _isConnecting.value = false
+            withContext(Dispatchers.Main) {
+                onResult?.invoke(isHealthy)
+            }
+        }
+    }
+
+    private fun probeServer(): Boolean {
+        // Try /api/v1/health first
+        try {
+            val url = ApiConfig.BASE_URL + "health"
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .build()
+            healthClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful || response.code in 200..499) {
+                    return true
+                }
+            }
+        } catch (_: Exception) {}
+
+        // Fallback to root /health
+        try {
+            val fallbackUrl = ApiConfig.BASE_URL.replace("/api/v1/", "/health")
+            val request = Request.Builder()
+                .url(fallbackUrl)
+                .get()
+                .build()
+            healthClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful || response.code in 200..499) {
+                    return true
+                }
+            }
+        } catch (_: Exception) {}
+
+        return false
+    }
+
     fun markOnline() {
         if (!_isOnline.value) {
+            Log.d(TAG, "Transitioned to ONLINE")
             _isOnline.value = true
             if (_queuedCount.value > 0) {
                 triggerAutoSync()
@@ -229,6 +333,7 @@ object OfflineAttendanceManager {
 
     fun markOffline() {
         if (_isOnline.value) {
+            Log.d(TAG, "Transitioned to OFFLINE")
             _isOnline.value = false
         }
     }

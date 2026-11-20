@@ -843,13 +843,6 @@ private fun ClassCard(
     onStartRollCall: (Int) -> Unit,
     onViewDetails: (Int) -> Unit = {}
 ) {
-    val indicatorColor = when (state) {
-        ClassState.SUBMITTED -> SemanticGreen
-        ClassState.ACTIVE -> SemanticYellow
-        ClassState.MISSED -> SemanticRed
-        ClassState.UPCOMING -> Color.LightGray.copy(alpha = 0.8f)
-    }
-
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -857,11 +850,7 @@ private fun ClassCard(
         border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.3f)),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
-            // Left Status Indicator Strip
-            Box(modifier = Modifier.fillMaxHeight().width(6.dp).background(indicatorColor))
-
-            Column(Modifier.padding(16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 // Top Row: Code, Credits, Type, Duration & Status Badge
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1107,7 +1096,6 @@ private fun ClassCard(
             }
         }
     }
-}
 
 @Composable
 private fun StatusBadge(text: String, bgColor: Color, textColor: Color, icon: ImageVector) {

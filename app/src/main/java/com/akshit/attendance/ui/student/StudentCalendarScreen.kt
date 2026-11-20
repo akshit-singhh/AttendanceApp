@@ -29,6 +29,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import com.akshit.attendance.ui.components.PullToRefreshExpressiveIndicator
 import com.akshit.attendance.ui.components.SkeletonBox
+import com.akshit.attendance.util.AppDateProvider
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -42,9 +43,18 @@ fun StudentCalendarScreen(
 
     var selectedSubjectCode by remember { mutableStateOf<String?>("ALL") }
 
-    val calendar = remember { Calendar.getInstance() }
-    var currentMonthCalendar by remember { mutableStateOf(Calendar.getInstance()) }
-    var selectedDayNumber by remember { mutableStateOf(calendar.get(Calendar.DAY_OF_MONTH)) }
+    val effectiveToday = AppDateProvider.today
+    val calendar = remember(effectiveToday) {
+        Calendar.getInstance().apply {
+            set(effectiveToday.year, effectiveToday.monthValue - 1, effectiveToday.dayOfMonth)
+        }
+    }
+    var currentMonthCalendar by remember(effectiveToday) {
+        mutableStateOf(Calendar.getInstance().apply {
+            set(effectiveToday.year, effectiveToday.monthValue - 1, effectiveToday.dayOfMonth)
+        })
+    }
+    var selectedDayNumber by remember(effectiveToday) { mutableStateOf(effectiveToday.dayOfMonth) }
 
     val monthYearFormat = remember { SimpleDateFormat("MMMM yyyy", Locale.ENGLISH) }
     val monthKeyFormat = remember { SimpleDateFormat("yyyy-MM", Locale.ENGLISH) }
@@ -60,8 +70,8 @@ fun StudentCalendarScreen(
 
     val isRefreshing = calendarState is CalendarUiState.Loading
     val pullToRefreshState = rememberPullToRefreshState()
-    if (pullToRefreshState.isRefreshing) {
-        LaunchedEffect(true) {
+    LaunchedEffect(pullToRefreshState.isRefreshing) {
+        if (pullToRefreshState.isRefreshing) {
             viewModel.loadCalendar(monthKey)
         }
     }
@@ -106,7 +116,15 @@ fun StudentCalendarScreen(
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
             TopAppBar(
-                title = { Text("Attendance Calendar", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextDark) },
+                title = {
+                    Text(
+                        text = "Attendance Calendar",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = TextDark
+                        )
+                    )
+                },
                 actions = {
                     IconButton(onClick = { viewModel.loadCalendar(monthKey) }) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "Refresh", tint = TextDark)
@@ -129,7 +147,7 @@ fun StudentCalendarScreen(
             ) {
             // 1. Horizontal Subject Filter Pills
             item {
-                val subjects = (dashboardState as? DashboardUiState.Loaded)?.data?.subjects ?: emptyList()
+                val subjects = (dashboardState as? DashboardUiState.Loaded)?.data?.subjects?.filter { it.requires_attendance } ?: emptyList()
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {

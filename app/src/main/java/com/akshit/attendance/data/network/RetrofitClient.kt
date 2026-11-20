@@ -144,7 +144,22 @@ object RetrofitClient {
 
     private fun build(tokenManager: TokenManager): ApiService {
         val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
+        val connectivityInterceptor = Interceptor { chain ->
+            val request = chain.request()
+            try {
+                val response = chain.proceed(request)
+                // Any response from the server proves the app reached the backend
+                com.akshit.attendance.data.offline.OfflineAttendanceManager.markOnline()
+                response
+            } catch (e: Exception) {
+                if (e is java.io.IOException) {
+                    com.akshit.attendance.data.offline.OfflineAttendanceManager.markOffline()
+                }
+                throw e
+            }
+        }
         val client = OkHttpClient.Builder()
+            .addInterceptor(connectivityInterceptor)
             .addInterceptor(AuthInterceptor(tokenManager))
             .addInterceptor(logging)
             .connectTimeout(30, TimeUnit.SECONDS)

@@ -16,6 +16,7 @@ interface StudentRepository {
     suspend fun getCalendar(month: String? = null): StudentCalendarResponse
     suspend fun applyLeave(startDate: String, endDate: String, reason: String, document: File): LeaveApplyResponse
     suspend fun getHistory(): List<AttendanceHistoryEntry>
+    suspend fun getSubjectHistory(courseCode: String): StudentSubjectHistoryResponse
 }
 
 class RealStudentRepository(private val api: ApiService) : StudentRepository {
@@ -24,6 +25,7 @@ class RealStudentRepository(private val api: ApiService) : StudentRepository {
     override suspend fun getSchedule(): List<StudentScheduleSlot> = api.getStudentSchedule()
     override suspend fun getTimetable(): TeacherTimetableResponse = api.getStudentTimetable()
     override suspend fun getCalendar(month: String?) = api.getStudentCalendar(month)
+    override suspend fun getSubjectHistory(courseCode: String): StudentSubjectHistoryResponse = api.getStudentSubjectHistory(courseCode)
 
     override suspend fun applyLeave(startDate: String, endDate: String, reason: String, document: File): LeaveApplyResponse {
         val docBody = document.asRequestBody("application/octet-stream".toMediaType())
@@ -89,5 +91,16 @@ class MockStudentRepository : StudentRepository {
         AttendanceHistoryEntry("2026-10-12", "Database Management Systems", "ABSENT", "Unexcused"),
         AttendanceHistoryEntry("2026-09-28", "Database Management Systems", "MEDICAL_LEAVE", "Ref: MED-8829"),
         AttendanceHistoryEntry("2026-09-15", "Database Management Systems", "ABSENT"),
+    )
+
+    override suspend fun getSubjectHistory(courseCode: String) = StudentSubjectHistoryResponse(
+        course_code = courseCode,
+        subject_name = "Internet of Things",
+        teacher_name = "Vidushi Sharma",
+        periods_held = 18,
+        periods_attended = 8,
+        percentage = 44.4,
+        standing = "Low Attendance",
+        sessions = emptyList()
     )
 }

@@ -81,6 +81,8 @@ class AuthRepository(
 
     suspend fun forgotPassword(email: String) = api.forgotPassword(ForgotPasswordRequest(email))
 
+    suspend fun verifyOtp(email: String, otp: String) = api.verifyOtp(VerifyOtpRequest(email, otp))
+
     suspend fun resetPassword(email: String, otp: String, newPassword: String) =
         api.resetPassword(ResetPasswordRequest(email, otp, newPassword))
 

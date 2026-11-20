@@ -63,27 +63,108 @@ fun SkeletonBox(
 fun DashboardHeroSkeleton(modifier: Modifier = Modifier) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(20.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
         modifier = modifier.fillMaxWidth()
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            SkeletonBox(modifier = Modifier.width(100.dp).height(24.dp), shape = RoundedCornerShape(12.dp))
-            Spacer(Modifier.height(16.dp))
-            SkeletonBox(modifier = Modifier.size(120.dp), shape = CircleShape)
-            Spacer(Modifier.height(16.dp))
-            SkeletonBox(modifier = Modifier.fillMaxWidth(0.7f).height(16.dp))
-            Spacer(Modifier.height(16.dp))
+        Column(modifier = Modifier.padding(15.dp)) {
+            // Header Row: [Icon + "Overall Attendance"] and [Status Badge Pill]
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                SkeletonBox(modifier = Modifier.width(80.dp).height(36.dp), shape = RoundedCornerShape(8.dp))
-                SkeletonBox(modifier = Modifier.width(80.dp).height(36.dp), shape = RoundedCornerShape(8.dp))
-                SkeletonBox(modifier = Modifier.width(80.dp).height(36.dp), shape = RoundedCornerShape(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SkeletonBox(modifier = Modifier.size(18.dp), shape = RoundedCornerShape(4.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    SkeletonBox(modifier = Modifier.width(130.dp).height(16.dp), shape = RoundedCornerShape(4.dp))
+                }
+                SkeletonBox(modifier = Modifier.width(96.dp).height(24.dp), shape = RoundedCornerShape(12.dp))
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Gauge & Stats Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Circular Ring Gauge Placeholder (Matches 96.dp circular ring with inner percentage)
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(96.dp)
+                ) {
+                    SkeletonBox(modifier = Modifier.size(96.dp), shape = CircleShape)
+                    Box(
+                        modifier = Modifier
+                            .size(79.dp)
+                            .background(Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            SkeletonBox(modifier = Modifier.width(42.dp).height(16.dp), shape = RoundedCornerShape(3.dp))
+                            Spacer(modifier = Modifier.height(3.dp))
+                            SkeletonBox(modifier = Modifier.width(36.dp).height(8.dp), shape = RoundedCornerShape(2.dp))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(18.dp))
+
+                // Stats Column (Ratio Box + Safe Bunk Buffer Box)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Ratio Box
+                    Surface(
+                        color = Color(0xFFF8FAFC),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            SkeletonBox(modifier = Modifier.width(75.dp).height(11.dp), shape = RoundedCornerShape(3.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
+                            SkeletonBox(modifier = Modifier.width(105.dp).height(14.dp), shape = RoundedCornerShape(3.dp))
+                        }
+                    }
+
+                    // Safe Bunk Buffer Box
+                    Surface(
+                        color = Color(0xFFF8FAFC),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                            SkeletonBox(modifier = Modifier.width(85.dp).height(10.dp), shape = RoundedCornerShape(3.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
+                            SkeletonBox(modifier = Modifier.fillMaxWidth(0.85f).height(12.dp), shape = RoundedCornerShape(3.dp))
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            HorizontalDivider(color = Color(0xFFF1F5F9))
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Footer Sub-stat Row: ["Subjects On Track: X of Y"] and ["View Subjects ->"]
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SkeletonBox(modifier = Modifier.size(14.dp), shape = RoundedCornerShape(3.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    SkeletonBox(modifier = Modifier.width(135.dp).height(12.dp), shape = RoundedCornerShape(3.dp))
+                }
+
+                SkeletonBox(modifier = Modifier.width(75.dp).height(12.dp), shape = RoundedCornerShape(3.dp))
             }
         }
     }

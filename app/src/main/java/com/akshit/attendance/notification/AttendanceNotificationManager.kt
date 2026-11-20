@@ -22,6 +22,9 @@ object AttendanceNotificationManager {
     private val _notifications = MutableStateFlow<List<NotificationItem>>(emptyList())
     val notifications: StateFlow<List<NotificationItem>> = _notifications.asStateFlow()
 
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
     private val _connectionStatus = MutableStateFlow("Synced")
     val connectionStatus: StateFlow<String> = _connectionStatus.asStateFlow()
 
@@ -47,50 +50,61 @@ object AttendanceNotificationManager {
     }
 
     /**
-     * Fetches notification history directly from the backend API.
+     * Fetches notification history directly from the backend API (suspend version for UI callers).
+     */
+    suspend fun refreshHistory() {
+        val ctx = appContext ?: return
+        _isLoading.value = true
+        try {
+            _connectionStatus.value = "Syncing..."
+            val tokenManager = TokenManager(ctx)
+            val token = tokenManager.accessToken()
+            if (token.isNullOrBlank()) {
+                _connectionStatus.value = "Not logged in"
+                return
+            }
+
+            val api = RetrofitClient.get(tokenManager)
+            val response = api.getMyNotifications(page = 1, size = 50)
+
+            val items = response.items.map { rec ->
+                val category = when (rec.notification_type.uppercase()) {
+                    "ATTENDANCE_ALERT" -> "ATTENDANCE"
+                    "TIMETABLE" -> "TIMETABLE"
+                    "ACADEMIC_ORDER", "CIRCULAR" -> "NOTICE"
+                    "ANNOUNCEMENT", "GENERAL" -> "NOTICE"
+                    else -> "NOTICE"
+                }
+
+                val formattedTime = formatTimestamp(rec.created_at)
+
+                NotificationItem(
+                    id = rec.id.toString(),
+                    title = rec.title,
+                    message = rec.message,
+                    timestamp = formattedTime,
+                    category = category,
+                    isRead = rec.is_read
+                )
+            }
+
+            _notifications.value = items
+            _connectionStatus.value = "Synced"
+            Log.i(TAG, "Successfully synced ${items.size} notifications from backend API.")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load notification history from backend: ${e.message}")
+            _connectionStatus.value = "Sync failed"
+        } finally {
+            _isLoading.value = false
+        }
+    }
+
+    /**
+     * Non-blocking background fetch helper.
      */
     fun fetchHistory(topic: String = "") {
-        val ctx = appContext ?: return
         scope.launch {
-            try {
-                _connectionStatus.value = "Syncing..."
-                val tokenManager = TokenManager(ctx)
-                val token = tokenManager.accessToken()
-                if (token.isNullOrBlank()) {
-                    _connectionStatus.value = "Not logged in"
-                    return@launch
-                }
-
-                val api = RetrofitClient.get(tokenManager)
-                val response = api.getMyNotifications(page = 1, size = 50)
-
-                val items = response.items.map { rec ->
-                    val category = when (rec.notification_type.uppercase()) {
-                        "ATTENDANCE_ALERT" -> "ATTENDANCE"
-                        "ACADEMIC_ORDER", "CIRCULAR" -> "ACADEMIC"
-                        "TIMETABLE" -> "TIMETABLE"
-                        else -> "GENERAL"
-                    }
-
-                    val formattedTime = formatTimestamp(rec.created_at)
-
-                    NotificationItem(
-                        id = rec.id.toString(),
-                        title = rec.title,
-                        message = rec.message,
-                        timestamp = formattedTime,
-                        category = category,
-                        isRead = rec.is_read
-                    )
-                }
-
-                _notifications.value = items
-                _connectionStatus.value = "Synced"
-                Log.i(TAG, "Successfully synced ${items.size} notifications from backend API.")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to load notification history from backend: ${e.message}")
-                _connectionStatus.value = "Sync failed"
-            }
+            refreshHistory()
         }
     }
 
@@ -139,8 +153,13 @@ object AttendanceNotificationManager {
 
     private fun formatTimestamp(isoString: String): String {
         return try {
-            val instant = Instant.parse(isoString)
-            val formatter = DateTimeFormatter.ofPattern("MMM dd, hh:mm a", Locale.getDefault())
+            val cleaned = if (!isoString.endsWith("Z") && !isoString.contains("+")) isoString + "Z" else isoString
+            val instant = try {
+                Instant.parse(cleaned)
+            } catch (_: Exception) {
+                java.time.LocalDateTime.parse(isoString.substringBefore("Z").substringBefore("+")).atZone(ZoneId.systemDefault()).toInstant()
+            }
+            val formatter = DateTimeFormatter.ofPattern("dd MMM, hh:mm a", Locale.ENGLISH)
                 .withZone(ZoneId.systemDefault())
             formatter.format(instant)
         } catch (_: Exception) {

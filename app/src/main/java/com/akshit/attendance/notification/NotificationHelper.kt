@@ -14,24 +14,44 @@ import com.akshit.attendance.R
 object NotificationHelper {
 
     const val CHANNEL_ID = "university_broadcasts"
-    const val CHANNEL_NAME = "University Broadcasts & Attendance"
+    const val CHANNEL_NAME = "University Broadcasts"
+    const val CHANNEL_ATTENDANCE_ALERTS = "attendance_alerts"
+    const val CHANNEL_ATTENDANCE_UPDATES = "attendance_updates"
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val importance = NotificationManager.IMPORTANCE_HIGH
-            val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, importance).apply {
-                description = "Official university circulars, attendance alerts, and notices"
+            val highImportance = NotificationManager.IMPORTANCE_HIGH
+            val lowImportance = NotificationManager.IMPORTANCE_LOW
+
+            val broadcastChannel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, highImportance).apply {
+                description = "Official university circulars and notices"
                 enableVibration(true)
                 enableLights(true)
             }
-            val legacyChannel = NotificationChannel("attendance_alerts", "Attendance Alerts", importance).apply {
-                description = "Real-time alerts when teachers record your attendance"
+            val alertsChannel = NotificationChannel(
+                CHANNEL_ATTENDANCE_ALERTS,
+                "Attendance Alerts & Corrections",
+                highImportance
+            ).apply {
+                description = "High-priority alerts when marked Absent or when attendance is corrected"
                 enableVibration(true)
                 enableLights(true)
             }
+            val updatesChannel = NotificationChannel(
+                CHANNEL_ATTENDANCE_UPDATES,
+                "Attendance Confirmations",
+                lowImportance
+            ).apply {
+                description = "Silent confirmations when marked Present"
+                enableVibration(false)
+                enableLights(false)
+                setSound(null, null)
+            }
+
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-            notificationManager.createNotificationChannel(legacyChannel)
+            notificationManager.createNotificationChannel(broadcastChannel)
+            notificationManager.createNotificationChannel(alertsChannel)
+            notificationManager.createNotificationChannel(updatesChannel)
         }
     }
 
@@ -40,6 +60,8 @@ object NotificationHelper {
         title: String,
         message: String,
         isAbsent: Boolean = false,
+        isSilent: Boolean = false,
+        channelId: String = if (isSilent) CHANNEL_ATTENDANCE_UPDATES else CHANNEL_ATTENDANCE_ALERTS,
         notificationId: Int = (System.currentTimeMillis() % 100000).toInt()
     ) {
         createNotificationChannel(context)
@@ -57,16 +79,25 @@ object NotificationHelper {
 
         val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
-        val notificationBuilder = NotificationCompat.Builder(context, CHANNEL_ID)
+        val notificationBuilder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_menu_agenda)
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setAutoCancel(true)
-            .setSound(defaultSoundUri)
-            .setPriority(if (isAbsent) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setContentIntent(pendingIntent)
+
+        if (isSilent) {
+            notificationBuilder
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setSound(null)
+                .setVibrate(null)
+        } else {
+            notificationBuilder
+                .setSound(defaultSoundUri)
+                .setPriority(if (isAbsent) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_HIGH)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+        }
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(notificationId, notificationBuilder.build())

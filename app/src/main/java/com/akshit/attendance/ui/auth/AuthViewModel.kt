@@ -26,6 +26,7 @@ sealed interface ForgotPasswordUiState {
     object Idle : ForgotPasswordUiState
     object Loading : ForgotPasswordUiState
     data class OtpSent(val message: String) : ForgotPasswordUiState
+    data class OtpVerified(val message: String) : ForgotPasswordUiState
     data class ResetSuccess(val message: String) : ForgotPasswordUiState
     data class Error(val message: String) : ForgotPasswordUiState
 }
@@ -192,6 +193,34 @@ class AuthViewModel(
             } catch (e: Exception) {
                 _forgotPasswordState.value = ForgotPasswordUiState.Error(formatAuthErrorMessage(e))
             }
+        }
+    }
+
+    fun verifyOtp(identifier: String, otp: String) {
+        val trimmedIdentifier = identifier.trim()
+        val trimmedOtp = otp.trim()
+        if (trimmedOtp.isBlank()) {
+            _forgotPasswordState.value = ForgotPasswordUiState.Error("Please enter the 6-digit verification code.")
+            return
+        }
+        if (trimmedOtp.length != 6) {
+            _forgotPasswordState.value = ForgotPasswordUiState.Error("Verification code must be exactly 6 digits.")
+            return
+        }
+        _forgotPasswordState.value = ForgotPasswordUiState.Loading
+        viewModelScope.launch {
+            try {
+                val res = repo.verifyOtp(trimmedIdentifier, trimmedOtp)
+                _forgotPasswordState.value = ForgotPasswordUiState.OtpVerified(res.message ?: "OTP verified successfully.")
+            } catch (e: Exception) {
+                _forgotPasswordState.value = ForgotPasswordUiState.Error(formatAuthErrorMessage(e))
+            }
+        }
+    }
+
+    fun clearForgotPasswordError() {
+        if (_forgotPasswordState.value is ForgotPasswordUiState.Error) {
+            _forgotPasswordState.value = ForgotPasswordUiState.Idle
         }
     }
 

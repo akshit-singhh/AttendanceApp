@@ -3,7 +3,10 @@ package com.akshit.attendance.ui.student
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.akshit.attendance.data.model.*
+import com.akshit.attendance.data.offline.OfflineAttendanceManager
+import com.akshit.attendance.data.offline.StudentCacheManager
 import com.akshit.attendance.data.repository.StudentRepository
+import com.akshit.attendance.util.AppDateProvider
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +33,13 @@ sealed interface CalendarUiState {
     data class Loaded(val data: StudentCalendarResponse) : CalendarUiState
     data class Error(val message: String) : CalendarUiState
 }
+
+sealed interface SubjectHistoryUiState {
+    object Loading : SubjectHistoryUiState
+    data class Loaded(val data: StudentSubjectHistoryResponse) : SubjectHistoryUiState
+    data class Error(val message: String) : SubjectHistoryUiState
+}
+
 
 sealed interface LeaveUiState {
     object Idle : LeaveUiState
@@ -73,6 +83,10 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
     private val _history = MutableStateFlow<List<AttendanceHistoryEntry>>(emptyList())
     val history: StateFlow<List<AttendanceHistoryEntry>> = _history.asStateFlow()
 
+    private val _subjectHistory = MutableStateFlow<SubjectHistoryUiState>(SubjectHistoryUiState.Loading)
+    val subjectHistory: StateFlow<SubjectHistoryUiState> = _subjectHistory.asStateFlow()
+
+
     private val _leaveState = MutableStateFlow<LeaveUiState>(LeaveUiState.Idle)
     val leaveState: StateFlow<LeaveUiState> = _leaveState.asStateFlow()
 
@@ -88,7 +102,50 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     init {
+        // 1. Immediately hydrate in-memory state from disk cache (0ms latency, 100% offline-ready)
+        StudentCacheManager.loadProfile()?.let { _profile.value = it }
+
+        StudentCacheManager.loadDashboard()?.let { cached ->
+            _dashboard.value = DashboardUiState.Loaded(cached)
+            if (cached.subjects.isNotEmpty()) {
+                _plannerItems.value = cached.subjects.filter { it.requires_attendance }.map {
+                    PlannerSubjectItem(
+                        code = it.course_code,
+                        name = it.subject_name,
+                        currentAttended = it.periods_attended,
+                        currentHeld = it.periods_held,
+                        upcomingClasses = 10,
+                        plannedAttend = 8
+                    )
+                }
+            }
+        }
+
+        val cachedSchedule = StudentCacheManager.loadSchedule()
+        if (cachedSchedule.isNotEmpty()) {
+            _schedule.value = sortSchedule(cachedSchedule)
+        }
+
+        StudentCacheManager.loadTimetable()?.let {
+            _timetable.value = StudentTimetableUiState.Loaded(it)
+        }
+
+        // 2. Fetch fresh network data in background
         loadAll()
+    }
+
+    private fun sortSchedule(raw: List<StudentScheduleSlot>): List<StudentScheduleSlot> {
+        return raw.sortedWith(compareBy({ slot ->
+            when (slot.day_of_week.uppercase()) {
+                "MON" -> 1
+                "TUE" -> 2
+                "WED" -> 3
+                "THU" -> 4
+                "FRI" -> 5
+                "SAT" -> 6
+                else -> 7
+            }
+        }, { parseTimeToMinutes(it.start_time) }))
     }
 
     fun loadAll() {
@@ -103,23 +160,29 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
     fun refreshAll() {
         viewModelScope.launch {
             _isRefreshing.value = true
-            _dashboard.value = DashboardUiState.Loading
-            _timetable.value = StudentTimetableUiState.Loading
             try {
                 val minDelayDeferred = async { delay(600L) }
                 val profileDeferred = async { try { repo.getProfile() } catch (e: Exception) { null } }
                 val dashboardDeferred = async { try { repo.getDashboard(null) } catch (e: Exception) { null } }
                 val scheduleDeferred = async { try { repo.getSchedule() } catch (e: Exception) { null } }
                 val timetableDeferred = async { try { repo.getTimetable() } catch (e: Exception) { null } }
-                val calendarDeferred = async { try { repo.getCalendar(null) } catch (e: Exception) { null } }
+                val currentMonthKey = AppDateProvider.todayString.take(7)
+                val calendarDeferred = async { try { repo.getCalendar(currentMonthKey) } catch (e: Exception) { null } }
                 val historyDeferred = async { try { repo.getHistory() } catch (e: Exception) { null } }
 
-                profileDeferred.await()?.let { _profile.value = it }
+                val prof = profileDeferred.await()
+                if (prof != null) {
+                    StudentCacheManager.saveProfile(prof)
+                    _profile.value = prof
+                }
+
                 val newDash = dashboardDeferred.await()
                 if (newDash != null) {
+                    StudentCacheManager.saveDashboard(newDash)
                     _dashboard.value = DashboardUiState.Loaded(newDash)
+                    OfflineAttendanceManager.markOnline()
                     if (_plannerItems.value.isEmpty() && newDash.subjects.isNotEmpty()) {
-                        _plannerItems.value = newDash.subjects.map {
+                        _plannerItems.value = newDash.subjects.filter { it.requires_attendance }.map {
                             PlannerSubjectItem(
                                 code = it.course_code,
                                 name = it.subject_name,
@@ -130,37 +193,65 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
                             )
                         }
                     }
-                } else if (_dashboard.value is DashboardUiState.Loading) {
-                    _dashboard.value = DashboardUiState.Error("Unable to refresh dashboard data.")
+                } else {
+                    OfflineAttendanceManager.markOffline()
+                    if (_dashboard.value !is DashboardUiState.Loaded) {
+                        val cached = StudentCacheManager.loadDashboard()
+                        if (cached != null) {
+                            _dashboard.value = DashboardUiState.Loaded(cached)
+                        } else {
+                            _dashboard.value = DashboardUiState.Error("You are offline. Showing cached data.")
+                        }
+                    }
                 }
 
-                scheduleDeferred.await()?.let { raw ->
-                    _schedule.value = raw.sortedWith(compareBy({ slot ->
-                        when (slot.day_of_week.uppercase()) {
-                            "MON" -> 1
-                            "TUE" -> 2
-                            "WED" -> 3
-                            "THU" -> 4
-                            "FRI" -> 5
-                            "SAT" -> 6
-                            else -> 7
+                val rawSchedule = scheduleDeferred.await()
+                if (rawSchedule != null) {
+                    StudentCacheManager.saveSchedule(rawSchedule)
+                    _schedule.value = sortSchedule(rawSchedule)
+                    OfflineAttendanceManager.markOnline()
+                } else {
+                    OfflineAttendanceManager.markOffline()
+                    if (_schedule.value.isEmpty()) {
+                        val cached = StudentCacheManager.loadSchedule()
+                        if (cached.isNotEmpty()) {
+                            _schedule.value = sortSchedule(cached)
                         }
-                    }, { parseTimeToMinutes(it.start_time) }))
+                    }
                 }
 
                 val newTimetable = timetableDeferred.await()
                 if (newTimetable != null) {
+                    StudentCacheManager.saveTimetable(newTimetable)
                     _timetable.value = StudentTimetableUiState.Loaded(newTimetable)
-                } else if (_timetable.value is StudentTimetableUiState.Loading) {
-                    _timetable.value = StudentTimetableUiState.Error("Unable to refresh timetable data.")
+                    OfflineAttendanceManager.markOnline()
+                } else {
+                    OfflineAttendanceManager.markOffline()
+                    if (_timetable.value !is StudentTimetableUiState.Loaded) {
+                        val cached = StudentCacheManager.loadTimetable()
+                        if (cached != null) {
+                            _timetable.value = StudentTimetableUiState.Loaded(cached)
+                        }
+                    }
                 }
 
-                calendarDeferred.await()?.let { _calendarState.value = CalendarUiState.Loaded(it) }
+                calendarDeferred.await()?.let {
+                    StudentCacheManager.saveCalendar(currentMonthKey, it)
+                    _calendarState.value = CalendarUiState.Loaded(it)
+                }
                 historyDeferred.await()?.let { _history.value = it }
                 minDelayDeferred.await()
             } catch (e: Exception) {
-                if (_dashboard.value is DashboardUiState.Loading) {
-                    _dashboard.value = DashboardUiState.Error(e.message ?: "Failed to refresh.")
+                if (StudentCacheManager.isNetworkError(e)) {
+                    OfflineAttendanceManager.markOffline()
+                }
+                if (_dashboard.value !is DashboardUiState.Loaded) {
+                    val cached = StudentCacheManager.loadDashboard()
+                    if (cached != null) {
+                        _dashboard.value = DashboardUiState.Loaded(cached)
+                    } else {
+                        _dashboard.value = DashboardUiState.Error("You are offline. Connect to the internet to refresh.")
+                    }
                 }
             } finally {
                 _isRefreshing.value = false
@@ -170,20 +261,40 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
 
     fun loadProfile() {
         viewModelScope.launch {
+            if (_profile.value == null) {
+                StudentCacheManager.loadProfile()?.let { _profile.value = it }
+            }
             try {
-                _profile.value = repo.getProfile()
+                val data = repo.getProfile()
+                StudentCacheManager.saveProfile(data)
+                _profile.value = data
+                OfflineAttendanceManager.markOnline()
             } catch (e: Exception) {
-                // Profile load failure fallback
+                if (StudentCacheManager.isNetworkError(e)) {
+                    OfflineAttendanceManager.markOffline()
+                }
+                if (_profile.value == null) {
+                    StudentCacheManager.loadProfile()?.let { _profile.value = it }
+                }
             }
         }
     }
 
     fun loadDashboard() {
         viewModelScope.launch {
-            _dashboard.value = DashboardUiState.Loading
-            _dashboard.value = try {
+            if (_dashboard.value !is DashboardUiState.Loaded) {
+                val cached = StudentCacheManager.loadDashboard()
+                if (cached != null) {
+                    _dashboard.value = DashboardUiState.Loaded(cached)
+                } else {
+                    _dashboard.value = DashboardUiState.Loading
+                }
+            }
+            try {
                 val data = repo.getDashboard(null)
-                // Initialize planner items from dashboard subjects if empty
+                StudentCacheManager.saveDashboard(data)
+                _dashboard.value = DashboardUiState.Loaded(data)
+                OfflineAttendanceManager.markOnline()
                 if (_plannerItems.value.isEmpty() && data.subjects.isNotEmpty()) {
                     _plannerItems.value = data.subjects.map {
                         PlannerSubjectItem(
@@ -196,54 +307,118 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
                         )
                     }
                 }
-                DashboardUiState.Loaded(data)
             } catch (e: Exception) {
-                DashboardUiState.Error(e.message ?: "Could not load dashboard.")
+                if (StudentCacheManager.isNetworkError(e)) {
+                    OfflineAttendanceManager.markOffline()
+                }
+                if (_dashboard.value !is DashboardUiState.Loaded) {
+                    val cached = StudentCacheManager.loadDashboard()
+                    if (cached != null) {
+                        _dashboard.value = DashboardUiState.Loaded(cached)
+                    } else {
+                        _dashboard.value = DashboardUiState.Error(
+                            if (StudentCacheManager.isNetworkError(e))
+                                "You are offline. Connect to the internet to load attendance."
+                            else (e.message ?: "Could not load dashboard.")
+                        )
+                    }
+                }
             }
         }
     }
 
     fun loadSchedule() {
         viewModelScope.launch {
+            if (_schedule.value.isEmpty()) {
+                val cached = StudentCacheManager.loadSchedule()
+                if (cached.isNotEmpty()) {
+                    _schedule.value = sortSchedule(cached)
+                }
+            }
             try {
                 val raw = repo.getSchedule()
-                _schedule.value = raw.sortedWith(compareBy({ slot ->
-                    when (slot.day_of_week.uppercase()) {
-                        "MON" -> 1
-                        "TUE" -> 2
-                        "WED" -> 3
-                        "THU" -> 4
-                        "FRI" -> 5
-                        "SAT" -> 6
-                        else -> 7
-                    }
-                }, { parseTimeToMinutes(it.start_time) }))
+                StudentCacheManager.saveSchedule(raw)
+                _schedule.value = sortSchedule(raw)
+                OfflineAttendanceManager.markOnline()
             } catch (e: Exception) {
-                _schedule.value = emptyList()
+                if (StudentCacheManager.isNetworkError(e)) {
+                    OfflineAttendanceManager.markOffline()
+                }
+                if (_schedule.value.isEmpty()) {
+                    val cached = StudentCacheManager.loadSchedule()
+                    if (cached.isNotEmpty()) {
+                        _schedule.value = sortSchedule(cached)
+                    }
+                }
             }
         }
     }
 
     fun loadTimetable() {
         viewModelScope.launch {
-            _timetable.value = StudentTimetableUiState.Loading
-            _timetable.value = try {
+            if (_timetable.value !is StudentTimetableUiState.Loaded) {
+                val cached = StudentCacheManager.loadTimetable()
+                if (cached != null) {
+                    _timetable.value = StudentTimetableUiState.Loaded(cached)
+                } else {
+                    _timetable.value = StudentTimetableUiState.Loading
+                }
+            }
+            try {
                 val data = repo.getTimetable()
-                StudentTimetableUiState.Loaded(data)
+                StudentCacheManager.saveTimetable(data)
+                _timetable.value = StudentTimetableUiState.Loaded(data)
+                OfflineAttendanceManager.markOnline()
             } catch (e: Exception) {
-                StudentTimetableUiState.Error(e.message ?: "Could not load timetable.")
+                if (StudentCacheManager.isNetworkError(e)) {
+                    OfflineAttendanceManager.markOffline()
+                }
+                if (_timetable.value !is StudentTimetableUiState.Loaded) {
+                    val cached = StudentCacheManager.loadTimetable()
+                    if (cached != null) {
+                        _timetable.value = StudentTimetableUiState.Loaded(cached)
+                    } else {
+                        _timetable.value = StudentTimetableUiState.Error(
+                            if (StudentCacheManager.isNetworkError(e))
+                                "You are offline. Connect to the internet to view timetable."
+                            else (e.message ?: "Could not load timetable.")
+                        )
+                    }
+                }
             }
         }
     }
 
     fun loadCalendar(month: String? = null) {
+        val targetMonth = month ?: AppDateProvider.todayString.take(7)
         viewModelScope.launch {
-            _calendarState.value = CalendarUiState.Loading
-            _calendarState.value = try {
-                val data = repo.getCalendar(month)
-                CalendarUiState.Loaded(data)
+            val cached = StudentCacheManager.loadCalendar(targetMonth)
+            if (cached != null && _calendarState.value !is CalendarUiState.Loaded) {
+                _calendarState.value = CalendarUiState.Loaded(cached)
+            } else if (_calendarState.value !is CalendarUiState.Loaded) {
+                _calendarState.value = CalendarUiState.Loading
+            }
+            try {
+                val data = repo.getCalendar(targetMonth)
+                StudentCacheManager.saveCalendar(targetMonth, data)
+                _calendarState.value = CalendarUiState.Loaded(data)
+                OfflineAttendanceManager.markOnline()
             } catch (e: Exception) {
-                CalendarUiState.Error(e.message ?: "Could not load attendance calendar.")
+                if (StudentCacheManager.isNetworkError(e)) {
+                    OfflineAttendanceManager.markOffline()
+                }
+                if (_calendarState.value !is CalendarUiState.Loaded) {
+                    val c = StudentCacheManager.loadCalendar(targetMonth)
+                    if (c != null) {
+                        _calendarState.value = CalendarUiState.Loaded(c)
+                    } else {
+                        _calendarState.value = CalendarUiState.Error(
+                            if (StudentCacheManager.isNetworkError(e))
+                                "You are offline. Connect to the internet to load calendar."
+                            else (e.message ?: "Could not load attendance calendar.")
+                        )
+                    }
+                }
             }
         }
     }
@@ -257,6 +432,40 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
             }
         }
     }
+
+    fun loadSubjectHistory(courseCode: String) {
+        viewModelScope.launch {
+            val cached = StudentCacheManager.loadSubjectHistory(courseCode)
+            if (cached != null) {
+                _subjectHistory.value = SubjectHistoryUiState.Loaded(cached)
+            } else {
+                _subjectHistory.value = SubjectHistoryUiState.Loading
+            }
+            try {
+                val data = repo.getSubjectHistory(courseCode)
+                StudentCacheManager.saveSubjectHistory(courseCode, data)
+                _subjectHistory.value = SubjectHistoryUiState.Loaded(data)
+                OfflineAttendanceManager.markOnline()
+            } catch (e: Exception) {
+                if (StudentCacheManager.isNetworkError(e)) {
+                    OfflineAttendanceManager.markOffline()
+                }
+                if (_subjectHistory.value !is SubjectHistoryUiState.Loaded) {
+                    val c = StudentCacheManager.loadSubjectHistory(courseCode)
+                    if (c != null) {
+                        _subjectHistory.value = SubjectHistoryUiState.Loaded(c)
+                    } else {
+                        _subjectHistory.value = SubjectHistoryUiState.Error(
+                            if (StudentCacheManager.isNetworkError(e))
+                                "You are offline. Connect to the internet to view subject records."
+                            else (e.message ?: "Could not load subject attendance records.")
+                        )
+                    }
+                }
+            }
+        }
+    }
+
 
     fun toggleSelfAttendance(key: String, status: String) {
         val curr = _selfMarked.value.toMutableMap()
@@ -313,7 +522,7 @@ class StudentViewModel(private val repo: StudentRepository) : ViewModel() {
     fun resetPlanner() {
         val dash = (_dashboard.value as? DashboardUiState.Loaded)?.data
         if (dash != null) {
-            _plannerItems.value = dash.subjects.map {
+            _plannerItems.value = dash.subjects.filter { it.requires_attendance }.map {
                 PlannerSubjectItem(
                     code = it.course_code,
                     name = it.subject_name,
