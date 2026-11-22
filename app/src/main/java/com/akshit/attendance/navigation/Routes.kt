@@ -24,6 +24,7 @@ object Routes {
     const val TEACHER_ANALYTICS = "teacher_analytics"
     const val TEACHER_RECORDS = "teacher_records"
     const val TEACHER_NOTIFICATIONS = "teacher_notifications"
+    const val TEACHER_OFFLINE_QUEUE = "teacher_offline_queue"
     const val PROFILE = "profile"
     const val NOTIFICATION_SETTINGS = "notification_settings"
 

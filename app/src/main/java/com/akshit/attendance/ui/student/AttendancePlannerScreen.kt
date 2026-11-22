@@ -50,7 +50,15 @@ fun AttendancePlannerScreen(
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
             TopAppBar(
-                title = { Text("Attendance Planner", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextDark) },
+                title = {
+                    Text(
+                        text = "Attendance Planner",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = TextDark
+                        )
+                    )
+                },
                 actions = {
                     TextButton(onClick = { viewModel.resetPlanner() }) {
                         Text("Reset", color = AccentPurple, fontWeight = FontWeight.Bold)

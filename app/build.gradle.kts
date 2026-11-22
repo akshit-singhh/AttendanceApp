@@ -6,6 +6,21 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+
+val debugApiBaseUrl = providers.gradleProperty("ATTENDANCE_API_BASE_URL")
+    .orElse(providers.environmentVariable("ATTENDANCE_API_BASE_URL"))
+    .orElse("https://laptop-f0uunm9o.taild8f6a1.ts.net/api/v1/")
+    .get()
+val releaseApiBaseUrl = providers.gradleProperty("RELEASE_API_BASE_URL")
+    .orElse(providers.environmentVariable("RELEASE_API_BASE_URL"))
+    .orNull
+val releaseKeystorePath = providers.environmentVariable("RELEASE_KEYSTORE_PATH").orNull
+val releaseKeystorePassword = providers.environmentVariable("RELEASE_KEYSTORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("RELEASE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD").orNull
+
+fun normalizedBaseUrl(value: String): String = value.trim().let { if (it.endsWith("/")) it else "$it/" }
+
 android {
     namespace = "com.akshit.attendance"
     compileSdk = 34
@@ -16,6 +31,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
+        buildConfigField("String", "API_BASE_URL", "\"${normalizedBaseUrl(debugApiBaseUrl)}\"")
 
         // ponytail: single flavor pointing at one backend URL. When staging/prod
         // environments exist, move this to buildConfigField per build type instead
@@ -24,27 +40,18 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystorePath = System.getenv("RELEASE_KEYSTORE_PATH")
-            if (keystorePath != null && file(keystorePath).exists()) {
-                storeFile = file(keystorePath)
-                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: ""
-                keyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: ""
-                keyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: ""
-            } else {
-                // Fallback to debug keystore for installable production APK generation
-                val debugKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
-                if (debugKeystore.exists()) {
-                    storeFile = debugKeystore
-                    storePassword = "android"
-                    keyAlias = "androiddebugkey"
-                    keyPassword = "android"
-                }
+            if (!releaseKeystorePath.isNullOrBlank()) {
+                storeFile = file(releaseKeystorePath)
+                storePassword = releaseKeystorePassword ?: ""
+                keyAlias = releaseKeyAlias ?: ""
+                keyPassword = releaseKeyPassword ?: ""
             }
         }
     }
 
     buildTypes {
         release {
+            buildConfigField("String", "API_BASE_URL", "\"${releaseApiBaseUrl?.let { normalizedBaseUrl(it) } ?: ""}\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -64,6 +71,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources.excludes.add("/META-INF/{AL2.0,LGPL2.1}")
@@ -76,6 +84,7 @@ dependencies {
     androidTestImplementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
     implementation("androidx.activity:activity-compose:1.9.0")
@@ -108,4 +117,27 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+
+val validateReleaseEnvironment = tasks.register("validateReleaseEnvironment") {
+    doLast {
+        val apiUrl = releaseApiBaseUrl?.trim()
+        val keyFile = releaseKeystorePath?.let(::file)
+        val missing = mutableListOf<String>()
+        if (apiUrl.isNullOrBlank() || !apiUrl.startsWith("https://", ignoreCase = true) || apiUrl.contains(".ts.net", ignoreCase = true)) {
+            missing += "RELEASE_API_BASE_URL (public HTTPS API endpoint, not the development tailnet host)"
+        }
+        if (keyFile == null || !keyFile.isFile) missing += "RELEASE_KEYSTORE_PATH (existing keystore file)"
+        if (releaseKeystorePassword.isNullOrBlank()) missing += "RELEASE_KEYSTORE_PASSWORD"
+        if (releaseKeyAlias.isNullOrBlank()) missing += "RELEASE_KEY_ALIAS"
+        if (releaseKeyPassword.isNullOrBlank()) missing += "RELEASE_KEY_PASSWORD"
+        if (missing.isNotEmpty()) {
+            throw GradleException("Release configuration is incomplete: ${missing.joinToString()}")
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == "preReleaseBuild") dependsOn(validateReleaseEnvironment)
 }

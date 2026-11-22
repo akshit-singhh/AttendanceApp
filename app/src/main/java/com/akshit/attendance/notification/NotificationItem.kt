@@ -10,5 +10,6 @@ data class NotificationItem(
     val timestamp: String,
     val category: String = "ATTENDANCE", // "ATTENDANCE", "ACADEMIC", "TIMETABLE"
     val isRead: Boolean = false,
-    val rawTime: Long = 0L
+    val rawTime: Long = 0L,
+    val actionUrl: String? = null
 )

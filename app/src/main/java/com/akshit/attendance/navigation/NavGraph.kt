@@ -1,12 +1,20 @@
 package com.akshit.attendance.navigation
 
+import com.akshit.attendance.data.offline.OfflineAttendanceManager
+
 import android.annotation.SuppressLint
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,14 +43,15 @@ import com.akshit.attendance.ui.theme.SurfaceBg
 import com.akshit.attendance.ui.components.studentDestinations
 import com.akshit.attendance.ui.components.teacherDestinations
 import com.akshit.attendance.ui.student.*
-import com.akshit.attendance.ui.teacher.TeacherTimetableScreen
-import com.akshit.attendance.ui.teacher.TeacherClassesScreen
+import com.akshit.attendance.ui.teacher.TeacherMainPagerScreen
 import com.akshit.attendance.ui.teacher.TeacherNotificationsScreen
-import com.akshit.attendance.ui.teacher.TeacherRecordsScreen
+import com.akshit.attendance.ui.teacher.TeacherOfflineQueueScreen
 import com.akshit.attendance.ui.teacher.TeacherRollCallScreen
 import com.akshit.attendance.ui.teacher.TeacherViewModel
+import com.akshit.attendance.ui.profile.NotificationSettingsScreen
 import com.akshit.attendance.ui.profile.ProfileScreen
 import com.akshit.attendance.ui.profile.ProfileViewModel
+import com.akshit.attendance.ui.splash.SplashScreen
 import kotlinx.coroutines.launch
 
 private fun destinationForUser(role: String, availableRoles: List<RoleOption> = emptyList()): String {
@@ -56,24 +65,15 @@ private fun destinationForUser(role: String, availableRoles: List<RoleOption> = 
     }
 }
 
-@SuppressLint("StateFlowValueCalledInComposition")
 @Composable
-fun AppNavGraph(app: AttendanceApp) {
+fun AppNavGraph(app: AttendanceApp, startDestination: String = Routes.LOGIN) {
     val navController = rememberNavController()
     val factory = remember { ViewModelFactory(app) }
     val authViewModel: AuthViewModel = viewModel(factory = factory)
+    val queuedAttendanceCount by OfflineAttendanceManager.queuedCount.collectAsState()
 
     var pendingPassword by remember { mutableStateOf("") }
     var cachedRoles by remember { mutableStateOf<List<RoleOption>>(emptyList()) }
-
-    val startDest = remember(authViewModel.state.value) {
-        val currentState = authViewModel.state.value
-        if (currentState is AuthUiState.Success) {
-            destinationForUser(currentState.response.active_role, currentState.response.available_roles)
-        } else {
-            Routes.LOGIN
-        }
-    }
 
     fun routeAfterAuth(response: TokenResponse) {
         // App is strictly for Teacher & Student — bypass RolePicker and continue as Teacher directly
@@ -88,17 +88,26 @@ fun AppNavGraph(app: AttendanceApp) {
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    var lastToastTime by remember { mutableStateOf(0L) }
     androidx.compose.runtime.LaunchedEffect(Unit) {
         app.tokenManager.sessionExpiredFlow.collect {
-            android.widget.Toast.makeText(context, "Session expired. Please log in again.", android.widget.Toast.LENGTH_LONG).show()
-            authViewModel.resetState()
-            navController.navigate(Routes.LOGIN) {
-                popUpTo(0) { inclusive = true }
+            val currentRoute = navController.currentBackStackEntry?.destination?.route
+            val now = System.currentTimeMillis()
+            if (currentRoute != Routes.LOGIN && currentRoute != Routes.SPLASH && !app.tokenManager.isLoggingOut()) {
+                if (now - lastToastTime > 4000L) {
+                    lastToastTime = now
+                    android.widget.Toast.makeText(context, "Session expired. Please log in again.", android.widget.Toast.LENGTH_LONG).show()
+                }
+                authViewModel.resetState()
+                navController.navigate(Routes.LOGIN) {
+                    popUpTo(0) { inclusive = true }
+                }
             }
         }
     }
 
     val performLogout: () -> Unit = {
+        app.tokenManager.markLoggingOut()
         authViewModel.logout {
             navController.navigate(Routes.LOGIN) {
                 popUpTo(0) { inclusive = true }
@@ -106,11 +115,56 @@ fun AppNavGraph(app: AttendanceApp) {
         }
     }
 
-    NavHost(navController = navController, startDestination = startDest) {
+    NavHost(
+        navController = navController,
+        startDestination = startDestination,
+        enterTransition = {
+            slideIntoContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                animationSpec = tween(300, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(300))
+        },
+        exitTransition = {
+            slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                animationSpec = tween(300, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(300))
+        },
+        popEnterTransition = {
+            slideIntoContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                animationSpec = tween(300, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(300))
+        },
+        popExitTransition = {
+            slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                animationSpec = tween(300, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(300))
+        }
+    ) {
+        composable(
+            Routes.SPLASH,
+            exitTransition = { fadeOut(animationSpec = tween(250)) }
+        ) {
+            SplashScreen(
+                tokenManager = app.tokenManager,
+                onNavigate = { destination ->
+                    navController.navigate(destination) {
+                        popUpTo(Routes.SPLASH) { inclusive = true }
+                    }
+                }
+            )
+        }
+
         composable(Routes.LOGIN) {
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                app.tokenManager.resetLoggingOut()
+            }
             LoginScreen(
                 viewModel = authViewModel,
                 onLoggedIn = { response, passwordUsed ->
+                    app.tokenManager.resetLoggingOut()
                     pendingPassword = passwordUsed
                     cachedRoles = response.available_roles
                     authViewModel.resetState()
@@ -176,8 +230,8 @@ fun AppNavGraph(app: AttendanceApp) {
         }
 
         composable(Routes.STUDENT_DASHBOARD) { RenderStudentPager(0) }
-        composable(Routes.STUDENT_SUBJECTS) { RenderStudentPager(1) }
-        composable(Routes.STUDENT_TIMETABLE) { RenderStudentPager(2) }
+        composable(Routes.STUDENT_TIMETABLE) { RenderStudentPager(1) }
+        composable(Routes.STUDENT_SUBJECTS) { RenderStudentPager(2) }
         composable(Routes.STUDENT_PLANNER) { RenderStudentPager(3) }
         composable(Routes.STUDENT_CALENDAR) { RenderStudentPager(4) }
         composable(
@@ -196,31 +250,41 @@ fun AppNavGraph(app: AttendanceApp) {
             val studentViewModel: StudentViewModel = viewModel(factory = factory)
             StudentNotificationsScreen(
                 viewModel = studentViewModel,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                onSelectSubject = { code -> navController.navigate(Routes.subjectDetail(code)) }
             )
         }
         composable(Routes.STUDENT_STATISTICS) {
             val studentViewModel: StudentViewModel = viewModel(factory = factory)
             StudentStatisticsScreen(
                 viewModel = studentViewModel,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                onSelectSubject = { courseCode -> navController.navigate(Routes.subjectDetail(courseCode)) }
             )
         }
         composable(Routes.STUDENT_HISTORY) { StudentScaffold(navController, factory) { StudentHistoryScreen(it) } }
         composable(Routes.STUDENT_LEAVES) { StudentScaffold(navController, factory) { StudentLeaveScreen(it) } }
-        composable(Routes.TEACHER_CLASSES) {
-            TeacherScaffold(navController, factory) { vm ->
-                TeacherClassesScreen(
-                    viewModel = vm,
-                    onStartRollCall = { courseOfferingId, sessionDate ->
-                        navController.navigate(Routes.rollCall(courseOfferingId, sessionDate))
-                    },
-                    onLogout = performLogout,
-                    onOpenProfile = { navController.navigate(Routes.PROFILE) },
-                    onNavigateToNotifications = { navController.navigate(Routes.TEACHER_NOTIFICATIONS) }
-                )
-            }
+        @Composable
+        fun RenderTeacherPager(initialPage: Int) {
+            val teacherViewModel: TeacherViewModel = viewModel(factory = factory)
+            TeacherMainPagerScreen(
+                viewModel = teacherViewModel,
+                repo = app.teacherRepository,
+                initialPage = initialPage,
+                onLogout = performLogout,
+                onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                onNavigateToNotifications = { navController.navigate(Routes.TEACHER_NOTIFICATIONS) },
+                onNavigateToOfflineQueue = { navController.navigate(Routes.TEACHER_OFFLINE_QUEUE) },
+                onStartRollCall = { offeringId, sessionDate, batchLabel ->
+                    navController.navigate(Routes.rollCall(offeringId, sessionDate, batchLabel))
+                }
+            )
         }
+
+        composable(Routes.TEACHER_CLASSES) { RenderTeacherPager(0) }
+        composable(Routes.TEACHER_TIMETABLE) { RenderTeacherPager(1) }
+        composable(Routes.TEACHER_ANALYTICS) { RenderTeacherPager(2) }
+        composable(Routes.TEACHER_RECORDS) { RenderTeacherPager(3) }
 
         composable(
             route = Routes.TEACHER_ROLL_CALL,
@@ -230,52 +294,59 @@ fun AppNavGraph(app: AttendanceApp) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
+                },
+                navArgument("batchLabel") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             ),
         ) { backStackEntry ->
             val offeringId = backStackEntry.arguments?.getInt("courseOfferingId") ?: 0
-            val teacherViewModel: TeacherViewModel = viewModel(factory = factory)
+            val parentEntry = remember(backStackEntry) {
+                try {
+                    navController.getBackStackEntry(Routes.TEACHER_CLASSES)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            val teacherViewModel: TeacherViewModel = if (parentEntry != null) {
+                viewModel(parentEntry, factory = factory)
+            } else {
+                viewModel(factory = factory)
+            }
             val sessionDate = backStackEntry.arguments?.getString("sessionDate")
+            val batchLabel = backStackEntry.arguments?.getString("batchLabel")
             TeacherRollCallScreen(
                 viewModel = teacherViewModel,
                 courseOfferingId = offeringId,
                 sessionDate = sessionDate,
+                initialBatchLabel = batchLabel,
                 onNavigateBack = { navController.popBackStack() },
                 onOpenProfile = { navController.navigate(Routes.PROFILE) },
                 onNavigateToNotifications = { navController.navigate(Routes.TEACHER_NOTIFICATIONS) },
-                onSubmitted = { navController.popBackStack() }
+                onSubmitted = {
+                    teacherViewModel.loadSchedule(isRefresh = true)
+                    teacherViewModel.loadPendingClasses()
+                    navController.popBackStack()
+                }
             )
         }
 
-        composable(Routes.TEACHER_TIMETABLE) {
-            TeacherScaffold(navController, factory) { vm ->
-                TeacherTimetableScreen(
-                    viewModel = vm,
-                    onStartRollCall = { courseOfferingId ->
-                        navController.navigate(Routes.rollCall(courseOfferingId))
-                    },
-                    onLogout = performLogout,
-                    onOpenProfile = { navController.navigate(Routes.PROFILE) },
-                    onNavigateToNotifications = { navController.navigate(Routes.TEACHER_NOTIFICATIONS) }
-                )
-            }
-        }
-        composable(Routes.TEACHER_RECORDS) {
-            TeacherScaffold(navController, factory) {
-                TeacherRecordsScreen(
-                    repo = app.teacherRepository,
-                    onEditSession = { offeringId, sessionDate ->
-                        navController.navigate(Routes.rollCall(offeringId, sessionDate))
-                    },
-                    onOpenProfile = { navController.navigate(Routes.PROFILE) },
-                    onLogout = performLogout,
-                    onNavigateToNotifications = { navController.navigate(Routes.TEACHER_NOTIFICATIONS) }
-                )
-            }
-        }
         composable(Routes.TEACHER_NOTIFICATIONS) {
             TeacherNotificationsScreen(
                 onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.TEACHER_OFFLINE_QUEUE) {
+            val teacherViewModel: TeacherViewModel = viewModel(factory = factory)
+            TeacherOfflineQueueScreen(
+                viewModel = teacherViewModel,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToRollCall = { offeringId, sessionDate, batchLabel ->
+                    navController.navigate(Routes.rollCall(offeringId, sessionDate, batchLabel))
+                }
             )
         }
 
@@ -284,7 +355,16 @@ fun AppNavGraph(app: AttendanceApp) {
             ProfileScreen(
                 viewModel = profileVm,
                 onNavigateBack = { navController.popBackStack() },
-                onLogout = performLogout
+                onNavigateToNotificationSettings = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
+                onLogout = performLogout,
+                pendingAttendanceCount = queuedAttendanceCount
+            )
+        }
+        composable(Routes.NOTIFICATION_SETTINGS) {
+            val profileVm: ProfileViewModel = viewModel(factory = factory)
+            NotificationSettingsScreen(
+                viewModel = profileVm,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }
@@ -308,21 +388,4 @@ private fun StudentScaffold(navController: NavHostController, factory: ViewModel
     }
 }
 
-@Composable
-private fun TeacherScaffold(navController: NavHostController, factory: ViewModelFactory, content: @Composable (TeacherViewModel) -> Unit) {
-    val backStackEntry by navController.currentBackStackEntryAsState()
-    val teacherViewModel: TeacherViewModel = viewModel(factory = factory)
-    Scaffold(
-        containerColor = SurfaceBg,
-        contentWindowInsets = WindowInsets(0.dp),
-        bottomBar = {
-            AppBottomNav(teacherDestinations, backStackEntry?.destination?.route) { route ->
-                val target = if (route == Routes.TEACHER_ROLL_CALL) Routes.TEACHER_CLASSES else route
-                navController.navigate(target) { launchSingleTop = true }
-            }
-        },
-    ) { padding ->
-        // FIX: Eliminates the double-padding white gap at the top
-        Box(Modifier.padding(bottom = padding.calculateBottomPadding())) { content(teacherViewModel) }
-    }
-}
+

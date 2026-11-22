@@ -26,6 +26,9 @@ interface ApiService {
     @POST("auth/forgot-password")
     suspend fun forgotPassword(@Body body: ForgotPasswordRequest): SimpleStatus
 
+    @POST("auth/verify-otp")
+    suspend fun verifyOtp(@Body body: VerifyOtpRequest): SimpleStatus
+
     @POST("auth/reset-password")
     suspend fun resetPassword(@Body body: ResetPasswordRequest): SimpleStatus
 
@@ -103,7 +106,7 @@ interface ApiService {
     suspend fun registerDeviceToken(@Body body: DeviceTokenRegisterRequest): SimpleStatus
 
     @POST("notifications/devices/unregister")
-    suspend fun unregisterDeviceToken(@Body body: DeviceTokenRegisterRequest): SimpleStatus
+    suspend fun unregisterDeviceToken(@Body body: DeviceTokenRegisterRequest?): SimpleStatus
 
     @GET("notifications/my-notifications")
     suspend fun getMyNotifications(

@@ -10,8 +10,8 @@
         android:name=".AttendanceApp"
         android:allowBackup="true"
         android:label="@string/app_name"
-        android:icon="@drawable/gbu_logo"
-        android:roundIcon="@drawable/gbu_logo"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.AttendanceApp"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true">
@@ -19,7 +19,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.AttendanceApp">
+            android:theme="@style/Theme.AttendanceApp.Starting">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

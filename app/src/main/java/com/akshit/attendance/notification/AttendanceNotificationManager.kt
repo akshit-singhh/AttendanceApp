@@ -84,7 +84,8 @@ object AttendanceNotificationManager {
                     message = rec.message,
                     timestamp = formattedTime,
                     category = category,
-                    isRead = rec.is_read
+                    isRead = rec.is_read,
+                    actionUrl = rec.action_url
                 )
             }
 
