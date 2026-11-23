@@ -31,7 +31,8 @@ fun StudentMainPagerScreen(
     onOpenProfile: () -> Unit,
     onSelectSubject: (String) -> Unit,
     onNavigateToStatistics: () -> Unit,
-    onNavigateToNotifications: () -> Unit
+    onNavigateToNotifications: () -> Unit,
+    onNavigateToDocuments: () -> Unit = {}
 ) {
     val pagerState = rememberPagerState(
         initialPage = initialPage.coerceIn(0, studentDestinations.size - 1),
@@ -109,7 +110,7 @@ fun StudentMainPagerScreen(
                         onLogout = onLogout,
                         onOpenProfile = onOpenProfile,
                         onNavigateToSubjects = {
-                            coroutineScope.launch { pagerState.animateScrollToPage(1) }
+                            coroutineScope.launch { pagerState.animateScrollToPage(2) }
                         },
                         onNavigateToPlanner = {
                             coroutineScope.launch { pagerState.animateScrollToPage(3) }
@@ -119,18 +120,19 @@ fun StudentMainPagerScreen(
                         },
                         onNavigateToStatistics = onNavigateToStatistics,
                         onNavigateToTimetable = {
-                            coroutineScope.launch { pagerState.animateScrollToPage(2) }
+                            coroutineScope.launch { pagerState.animateScrollToPage(1) }
                         },
-                        onNavigateToNotifications = onNavigateToNotifications
+                        onNavigateToNotifications = onNavigateToNotifications,
+                        onNavigateToDocuments = onNavigateToDocuments
                     )
-                    1 -> StudentSubjectsScreen(
-                        viewModel = viewModel,
-                        onSelectSubject = onSelectSubject
-                    )
-                    2 -> StudentTimetableScreen(
+                    1 -> StudentTimetableScreen(
                         viewModel = viewModel,
                         onLogout = onLogout,
                         onOpenProfile = onOpenProfile
+                    )
+                    2 -> StudentSubjectsScreen(
+                        viewModel = viewModel,
+                        onSelectSubject = onSelectSubject
                     )
                     3 -> AttendancePlannerScreen(
                         viewModel = viewModel

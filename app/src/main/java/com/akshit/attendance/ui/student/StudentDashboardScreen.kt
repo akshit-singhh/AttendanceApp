@@ -37,6 +37,8 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import com.akshit.attendance.ui.components.PullToRefreshExpressiveIndicator
 import com.akshit.attendance.notification.AttendanceNotificationManager
+import com.akshit.attendance.data.offline.OfflineAttendanceManager
+import com.akshit.attendance.data.offline.StudentCacheManager
 
 import androidx.compose.runtime.*
 
@@ -80,7 +82,8 @@ import com.akshit.attendance.ui.theme.AttendanceAppTheme
 import com.akshit.attendance.ui.components.DashboardHeroSkeleton
 
 import com.akshit.attendance.ui.components.ScheduleCardSkeleton
-
+import com.akshit.attendance.util.AppDateProvider
+import java.time.format.DateTimeFormatter
 import java.text.SimpleDateFormat
 
 import java.util.*
@@ -133,7 +136,9 @@ fun StudentDashboardScreen(
 
     onNavigateToTimetable: () -> Unit = {},
 
-    onNavigateToNotifications: () -> Unit = {}
+    onNavigateToNotifications: () -> Unit = {},
+
+    onNavigateToDocuments: () -> Unit = {}
 
 ) {
 
@@ -144,6 +149,16 @@ fun StudentDashboardScreen(
     val schedule by viewModel.schedule.collectAsState()
 
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val isOnline by OfflineAttendanceManager.isOnline.collectAsState()
+    var wasOffline by remember { mutableStateOf(!isOnline) }
+    LaunchedEffect(isOnline) {
+        if (isOnline && wasOffline) {
+            viewModel.refreshAll()
+            wasOffline = false
+        } else if (!isOnline) {
+            wasOffline = true
+        }
+    }
 
     val context = LocalContext.current
     LaunchedEffect(profile?.roll_number) {
@@ -183,7 +198,9 @@ fun StudentDashboardScreen(
 
         onNavigateToTimetable = onNavigateToTimetable,
 
-        onNavigateToNotifications = onNavigateToNotifications
+        onNavigateToNotifications = onNavigateToNotifications,
+
+        onNavigateToDocuments = onNavigateToDocuments
 
     )
 
@@ -223,72 +240,44 @@ fun StudentDashboardContent(
 
     onNavigateToTimetable: () -> Unit = {},
 
-    onNavigateToNotifications: () -> Unit = {}
+    onNavigateToNotifications: () -> Unit = {},
+
+    onNavigateToDocuments: () -> Unit = {}
 
 ) {
 
     var showLogoutDialog by remember { mutableStateOf(false) }
     val notifications by AttendanceNotificationManager.notifications.collectAsState()
     val unreadNotificationsCount = notifications.count { !it.isRead }
+    val isOnline by OfflineAttendanceManager.isOnline.collectAsState()
 
 
 
-    val todayCalendar = remember { Calendar.getInstance() }
+    val effectiveToday = AppDateProvider.today
 
-    val dayFormat = remember { SimpleDateFormat("EEE", Locale.ENGLISH) }
+    val fullDateFormat = remember { DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.ENGLISH) }
 
-    val fullDateFormat = remember { SimpleDateFormat("EEEE, d MMMM", Locale.ENGLISH) }
+    val todayShortDay = remember(effectiveToday) {
+        effectiveToday.dayOfWeek.name.take(3).uppercase()
+    }
 
-    val todayShortDay = remember { dayFormat.format(todayCalendar.time).uppercase() } // MON, TUE, etc.
-
-    val todayDateStr = remember { fullDateFormat.format(todayCalendar.time) }
+    val todayDateStr = remember(effectiveToday) {
+        effectiveToday.format(fullDateFormat)
+    }
 
     val greeting = remember {
-
         val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-
         when (hour) {
-
             in 5..11 -> "Good morning"
-
             in 12..16 -> "Good afternoon"
-
             in 17..20 -> "Good evening"
-
             else -> "Welcome back"
-
         }
-
     }
 
-
-
-    // Map Calendar.DAY_OF_WEEK to API day format
-
-    val targetDay = when (todayCalendar.get(Calendar.DAY_OF_WEEK)) {
-
-        Calendar.MONDAY -> "MON"
-
-        Calendar.TUESDAY -> "TUE"
-
-        Calendar.WEDNESDAY -> "WED"
-
-        Calendar.THURSDAY -> "THU"
-
-        Calendar.FRIDAY -> "FRI"
-
-        Calendar.SATURDAY -> "SAT"
-
-        Calendar.SUNDAY -> "SUN"
-
-        else -> "MON"
-
-    }
-
-
+    val targetDay = todayShortDay
 
     val todaySlots = remember(schedule, targetDay) {
-
         schedule.filter { it.day_of_week.equals(targetDay, ignoreCase = true) }
 
             .sortedBy { parseTimeToMinutes(it.start_time) }
@@ -518,27 +507,19 @@ fun StudentDashboardContent(
 
         val pullToRefreshState = rememberPullToRefreshState()
 
-        if (pullToRefreshState.isRefreshing) {
-
-            LaunchedEffect(true) {
-
+        LaunchedEffect(pullToRefreshState.isRefreshing) {
+            if (pullToRefreshState.isRefreshing) {
                 onRefresh()
-
             }
-
         }
 
         LaunchedEffect(isRefreshing) {
-
             if (!isRefreshing) {
-
                 pullToRefreshState.endRefresh()
-
             }
-
         }
 
-        val showSkeleton = isRefreshing || pullToRefreshState.isRefreshing || dashboardState is DashboardUiState.Loading
+        val showSkeleton = dashboardState is DashboardUiState.Loading
 
 
 
@@ -583,29 +564,29 @@ fun StudentDashboardContent(
                             }
 
                             is DashboardUiState.Error -> {
-
+                                val isOffline = !isOnline || StudentCacheManager.isNetworkError(state.message)
                                 Surface(
-
-                                    color = LightRedBg,
-
+                                    color = if (isOffline) Color(0xFFFEF3C7) else LightRedBg,
                                     shape = RoundedCornerShape(12.dp),
-
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-
                                 ) {
-
                                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-
-                                        Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = AlertRed)
-
+                                        Icon(
+                                            imageVector = if (isOffline) Icons.Outlined.CloudOff else Icons.Outlined.ErrorOutline,
+                                            contentDescription = null,
+                                            tint = if (isOffline) Color(0xFFD97706) else AlertRed
+                                        )
                                         Spacer(Modifier.width(10.dp))
-
-                                        Text(state.message, color = AlertRed, fontSize = 13.sp)
-
+                                        Column {
+                                            if (isOffline) {
+                                                Text("Offline Mode", color = Color(0xFF92400E), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                Text("Showing cached data. Connect to internet to refresh.", color = Color(0xFFB45309), fontSize = 12.sp)
+                                            } else {
+                                                Text(state.message, color = AlertRed, fontSize = 13.sp)
+                                            }
+                                        }
                                     }
-
                                 }
-
                             }
 
                             is DashboardUiState.Loaded -> {
@@ -616,7 +597,9 @@ fun StudentDashboardContent(
 
                                     getBunkAdvice = getBunkAdvice,
 
-                                    onViewSubjects = onNavigateToSubjects
+                                    onViewSubjects = onNavigateToSubjects,
+
+                                    onNavigateToStatistics = onNavigateToStatistics
 
                                 )
 
@@ -630,74 +613,29 @@ fun StudentDashboardContent(
 
 
 
-                // 3. Quick Action Grid (Planner, Calendar, Statistics)
-
-                item {
-
-                    QuickActionsRow(
-
-                        onPlannerClick = onNavigateToPlanner,
-
-                        onCalendarClick = onNavigateToCalendar,
-
-                        onStatisticsClick = onNavigateToStatistics
-
-                    )
-
-                }
-
-
-
-                // 4. Today's Timetable Section
+                // 3. Today's Timetable Section
 
                 item {
 
                     Row(
-
                         modifier = Modifier.fillMaxWidth(),
-
-                        horizontalArrangement = Arrangement.SpaceBetween,
-
                         verticalAlignment = Alignment.CenterVertically
-
                     ) {
-
                         Column {
-
                             Text("Today's Classes", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextDark)
-
                             val countText = if (todaySlots.isEmpty()) "No Classes Scheduled" else "${todaySlots.size} Scheduled"
-
                             Text("$todayDateStr • $countText", fontSize = 12.sp, color = TextGray)
-
                         }
-
-                        IconButton(
-
-                            onClick = onRefresh,
-
-                            modifier = Modifier.size(32.dp).background(Color(0xFFE2E8F0), CircleShape)
-
-                        ) {
-
-                            Icon(Icons.Outlined.Refresh, contentDescription = "Refresh", tint = TextDark, modifier = Modifier.size(16.dp))
-
-                        }
-
                     }
 
                 }
 
 
 
-                if (showSkeleton) {
-
+                if (schedule.isEmpty() && showSkeleton) {
                     items(3) {
-
                         ScheduleCardSkeleton()
-
                     }
-
                 } else {
 
                     if (todaySlots.isEmpty()) {
@@ -798,14 +736,9 @@ fun StudentDashboardContent(
 
                     }
 
-
-
-
                 // 5. Weekly Timetable Matrix Card removed as requested
 
             }
-
-
 
             PullToRefreshContainer(
                 state = pullToRefreshState,
@@ -826,9 +759,14 @@ fun StudentDashboardContent(
 
 }
 
-
-
-
+private data class ExamComplianceState(
+    val bg: Color,
+    val border: Color,
+    val textColor: Color,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val title: String,
+    val subtitle: String
+)
 
 @Composable
 
@@ -838,25 +776,27 @@ fun LiveOverallAttendanceCard(
 
     getBunkAdvice: (Int, Int, Double) -> BunkAdvice,
 
-    onViewSubjects: () -> Unit
+    onViewSubjects: () -> Unit,
+
+    onNavigateToStatistics: () -> Unit = {}
 
 ) {
 
     val overallPct = data.overall_percentage
 
-    val totalAttended = data.subjects.sumOf { it.periods_attended }
+    val trackedSubjects = data.subjects.filter { it.requires_attendance }
 
-    val totalHeld = data.subjects.sumOf { it.periods_held }
+    val totalAttended = trackedSubjects.sumOf { it.periods_attended }
 
-    val subjectsOnTrack = data.subjects.count { it.percentage >= 75.0 }
+    val totalHeld = trackedSubjects.sumOf { it.periods_held }
 
-    val totalSubjects = data.subjects.size
-
-
-
-    val advice = getBunkAdvice(totalAttended, totalHeld, 75.0)
-
-
+    // Evaluated subjects: subjects where at least 1 session has been held
+    val activeSubjects = trackedSubjects.filter { it.periods_held > 0 }
+    val evaluatedCount = if (activeSubjects.isNotEmpty()) activeSubjects.size else trackedSubjects.size
+    val subjectsOnTrack = trackedSubjects.count { it.periods_held > 0 && it.percentage >= 75.0 }
+    val subjectsAtRisk = trackedSubjects.count { it.periods_held > 0 && it.percentage < 75.0 }
+    val subjectsNotStarted = trackedSubjects.count { it.periods_held == 0 }
+    val totalSubjects = trackedSubjects.size
 
     Card(
 
@@ -868,173 +808,83 @@ fun LiveOverallAttendanceCard(
 
         border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder),
 
-        modifier = Modifier.fillMaxWidth().clickable { onViewSubjects() }
+        modifier = Modifier.fillMaxWidth().clickable { onNavigateToStatistics() }
 
     ) {
 
         Column(modifier = Modifier.padding(15.dp)) {
 
             // Header Row
-
             Row(
-
                 modifier = Modifier.fillMaxWidth(),
-
-                horizontalArrangement = Arrangement.SpaceBetween,
-
                 verticalAlignment = Alignment.CenterVertically
-
             ) {
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-
-                    Icon(Icons.Outlined.BarChart, contentDescription = null, tint = PrimaryBlue, modifier = Modifier.size(18.dp))
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    Text("Overall Attendance", fontWeight = FontWeight.Bold, color = TextDark, fontSize = 15.sp)
-
-                }
-
-
-
-                val (badgeBg, badgeText, badgeColor) = when {
-
-                    totalHeld == 0 -> Triple(Color(0xFFF1F5F9), "No Sessions", Color(0xFF64748B))
-
-                    overallPct >= 75.0 -> Triple(LightGreenBg, "On Track", PrimaryGreen)
-
-                    else -> Triple(LightRedBg, "Needs Attention", AlertRed)
-
-                }
-
-
-
-                Surface(color = badgeBg, shape = RoundedCornerShape(12.dp)) {
-
-                    Row(
-
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-
-                        verticalAlignment = Alignment.CenterVertically
-
-                    ) {
-
-                        Box(modifier = Modifier.size(6.dp).background(badgeColor, CircleShape))
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        Text(badgeText, fontSize = 11.sp, color = badgeColor, fontWeight = FontWeight.Bold)
-
-                    }
-
-                }
-
+                Icon(Icons.Outlined.VerifiedUser, contentDescription = null, tint = PrimaryBlue, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "Exam Eligibility & Attendance",
+                    fontWeight = FontWeight.Bold,
+                    color = TextDark,
+                    fontSize = 14.sp,
+                    maxLines = 1
+                )
             }
-
-
 
             Spacer(modifier = Modifier.height(12.dp))
 
-
-
             // Gauge & Stats Row
-
             Row(
-
                 modifier = Modifier.fillMaxWidth(),
-
                 verticalAlignment = Alignment.CenterVertically
-
             ) {
-
-                // Circular Ring Gauge
-
+                // Circular Ring Gauge (Per-Subject Exam Eligibility)
                 Box(
-
                     contentAlignment = Alignment.Center,
-
-                    modifier = Modifier.size(96.dp)
-
+                    modifier = Modifier.size(88.dp)
                 ) {
-
-                    val sweep = if (totalHeld == 0) 0f else (360f * (overallPct / 100f).toFloat()).coerceIn(0f, 360f)
+                    val fraction = if (evaluatedCount == 0) 0f else (subjectsOnTrack.toFloat() / evaluatedCount.toFloat())
+                    val sweep = if (totalHeld == 0) 0f else (360f * fraction).coerceIn(0f, 360f)
 
                     val ringColor = when {
-
                         totalHeld == 0 -> Color(0xFFCBD5E1)
-
-                        overallPct >= 75.0 -> PrimaryGreen
-
+                        subjectsAtRisk == 0 -> PrimaryGreen
+                        subjectsOnTrack > 0 -> WarningAmber
                         else -> AlertRed
-
                     }
 
-
-
-                    Canvas(modifier = Modifier.size(96.dp)) {
-
+                    Canvas(modifier = Modifier.size(88.dp)) {
                         drawArc(
-
                             color = Color(0xFFE2E8F0),
-
                             startAngle = 0f, sweepAngle = 360f, useCenter = false,
-
-                            style = Stroke(width = 8.5.dp.toPx(), cap = StrokeCap.Round)
-
+                            style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round)
                         )
-
                         if (sweep > 0f) {
-
                             drawArc(
-
                                 color = ringColor,
-
                                 startAngle = -90f, sweepAngle = sweep, useCenter = false,
-
-                                style = Stroke(width = 8.5.dp.toPx(), cap = StrokeCap.Round)
-
+                                style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round)
                             )
-
                         }
-
                     }
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-
-                        val pctText = if (totalHeld == 0) "—" else "${String.format(Locale.ENGLISH, "%.1f", overallPct)}%"
-
+                        val ratioText = if (totalHeld == 0) "—" else "$subjectsOnTrack/$evaluatedCount"
                         Text(
-
-                            pctText,
-
-                            fontSize = 22.sp,
-
+                            ratioText,
+                            fontSize = 19.sp,
                             fontWeight = FontWeight.ExtraBold,
-
                             color = if (totalHeld == 0) TextGray else TextDark
-
                         )
-
                         Text(
-
-                            if (totalHeld == 0) "No Sessions" else "Target 75%",
-
+                            if (totalHeld == 0) "No Sessions" else "Eligible",
                             fontSize = 9.sp,
-
                             color = TextGray,
-
                             fontWeight = FontWeight.SemiBold
-
                         )
-
                     }
-
                 }
 
-
-
-                Spacer(modifier = Modifier.width(18.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
 
 
@@ -1042,7 +892,7 @@ fun LiveOverallAttendanceCard(
 
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 
-                    // Ratio Card
+                    // Aggregate Attendance Card
 
                     Surface(
 
@@ -1056,21 +906,39 @@ fun LiveOverallAttendanceCard(
 
                     ) {
 
-                        Column(modifier = Modifier.padding(10.dp)) {
+                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
 
-                            Text("Attended Ratio", fontSize = 11.sp, color = TextGray)
+                            Text("Aggregate Attendance", fontSize = 10.5.sp, color = TextGray)
 
-                            Text(
+                            Row(verticalAlignment = Alignment.CenterVertically) {
 
-                                if (totalHeld == 0) "0 / 0 Periods" else "$totalAttended / $totalHeld Periods",
+                                Text(
 
-                                fontSize = 13.sp,
+                                    if (totalHeld == 0) "—" else "${String.format(Locale.ENGLISH, "%.1f", overallPct)}%",
 
-                                fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
 
-                                color = TextDark
+                                    fontWeight = FontWeight.ExtraBold,
 
-                            )
+                                    color = TextDark
+
+                                )
+
+                                Spacer(Modifier.width(6.dp))
+
+                                Text(
+
+                                    if (totalHeld == 0) "(0 / 0)" else "($totalAttended / $totalHeld Periods)",
+
+                                    fontSize = 10.5.sp,
+
+                                    color = TextGray,
+
+                                    fontWeight = FontWeight.Medium
+
+                                )
+
+                            }
 
                         }
 
@@ -1078,35 +946,57 @@ fun LiveOverallAttendanceCard(
 
 
 
-                    // Safe Bunk Buffer Card
+                    // Actionable Exam Compliance Card
 
-                    val (bunkBg, bunkTextColor, bunkText) = if (totalHeld == 0) {
+                    val compliance = when {
 
-                        Triple(Color(0xFFF1F5F9), Color(0xFF64748B), "No sessions held yet")
+                        totalHeld == 0 -> ExamComplianceState(
 
-                    } else when (advice) {
+                            bg = Color(0xFFF1F5F9),
 
-                        is BunkAdvice.Safe -> Triple(
+                            border = Color(0xFFE2E8F0),
 
-                            LightGreenBg,
+                            textColor = Color(0xFF64748B),
 
-                            PrimaryGreen,
+                            icon = Icons.Outlined.Info,
 
-                            if (advice.classesCanMiss > 0) "+${advice.classesCanMiss} Classes Safe Bunk" else "At 75% Limit"
+                            title = "Classes Pending",
 
-                        )
-
-                        is BunkAdvice.AtRisk -> Triple(
-
-                            LightAmberBg,
-
-                            WarningAmber,
-
-                            "Need +${advice.classesNeeded} Classes to 75%"
+                            subtitle = "No sessions held yet"
 
                         )
 
-                        BunkAdvice.NoClasses -> Triple(Color(0xFFF1F5F9), Color(0xFF64748B), "Classes Pending")
+                        subjectsAtRisk > 0 -> ExamComplianceState(
+
+                            bg = LightRedBg,
+
+                            border = Color(0xFFFECACA),
+
+                            textColor = AlertRed,
+
+                            icon = Icons.Outlined.WarningAmber,
+
+                            title = "Action Required",
+
+                            subtitle = "$subjectsAtRisk ${if (subjectsAtRisk == 1) "subject" else "subjects"} below 75% cutoff"
+
+                        )
+
+                        else -> ExamComplianceState(
+
+                            bg = LightGreenBg,
+
+                            border = Color(0xFFA7F3D0),
+
+                            textColor = PrimaryGreen,
+
+                            icon = Icons.Outlined.CheckCircle,
+
+                            title = "All Clear",
+
+                            subtitle = "Eligible in all evaluated subjects"
+
+                        )
 
                     }
 
@@ -1114,11 +1004,13 @@ fun LiveOverallAttendanceCard(
 
                     Surface(
 
-                        color = bunkBg,
+                        color = compliance.bg,
 
                         shape = RoundedCornerShape(10.dp),
 
-                        modifier = Modifier.fillMaxWidth()
+                        border = androidx.compose.foundation.BorderStroke(1.dp, compliance.border),
+
+                        modifier = Modifier.fillMaxWidth().clickable { onViewSubjects() }
 
                     ) {
 
@@ -1134,15 +1026,29 @@ fun LiveOverallAttendanceCard(
 
                             Column(modifier = Modifier.weight(1f)) {
 
-                                Text("Safe Bunk Buffer", fontSize = 10.sp, color = bunkTextColor, fontWeight = FontWeight.SemiBold)
+                                Text(compliance.title, fontSize = 10.sp, color = compliance.textColor, fontWeight = FontWeight.SemiBold)
 
-                                Text(bunkText, fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = bunkTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+
+                                    compliance.subtitle,
+
+                                    fontSize = 11.5.sp,
+
+                                    fontWeight = FontWeight.Bold,
+
+                                    color = compliance.textColor,
+
+                                    maxLines = 1,
+
+                                    overflow = TextOverflow.Ellipsis
+
+                                )
 
                             }
 
                             Spacer(Modifier.width(4.dp))
 
-                            Icon(Icons.Outlined.Checklist, contentDescription = null, tint = bunkTextColor, modifier = Modifier.size(15.dp))
+                            Icon(compliance.icon, contentDescription = null, tint = compliance.textColor, modifier = Modifier.size(16.dp))
 
                         }
 
@@ -1174,17 +1080,29 @@ fun LiveOverallAttendanceCard(
 
             ) {
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
 
-                    Icon(Icons.Outlined.MenuBook, contentDescription = null, tint = TextGray, modifier = Modifier.size(14.dp))
+                    verticalAlignment = Alignment.CenterVertically,
 
-                    Spacer(Modifier.width(6.dp))
+                    modifier = Modifier
+
+                        .clip(RoundedCornerShape(6.dp))
+
+                        .clickable { onViewSubjects() }
+
+                        .padding(vertical = 2.dp, horizontal = 2.dp)
+
+                ) {
+
+                    Icon(Icons.Outlined.MenuBook, contentDescription = null, tint = PrimaryBlue, modifier = Modifier.size(14.dp))
+
+                    Spacer(Modifier.width(5.dp))
 
                     Text(
 
-                        "Subjects On Track: $subjectsOnTrack of $totalSubjects",
+                        "Subjects: $subjectsOnTrack of $evaluatedCount On Track",
 
-                        fontSize = 11.sp,
+                        fontSize = 11.5.sp,
 
                         fontWeight = FontWeight.SemiBold,
 
@@ -1192,15 +1110,61 @@ fun LiveOverallAttendanceCard(
 
                     )
 
+                    Spacer(Modifier.width(2.dp))
+
+                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = TextGray, modifier = Modifier.size(13.dp))
+
                 }
 
 
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
 
-                    Text("View Subjects", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AccentPurple)
+                    color = Color(0xFFEFF6FF),
 
-                    Icon(Icons.Filled.ArrowForward, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(12.dp))
+                    shape = RoundedCornerShape(8.dp),
+
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
+
+                    modifier = Modifier.clickable { onNavigateToStatistics() }
+
+                ) {
+
+                    Row(
+
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+
+                        verticalAlignment = Alignment.CenterVertically
+
+                    ) {
+
+                        Icon(
+
+                            Icons.Outlined.BarChart,
+
+                            contentDescription = null,
+
+                            tint = PrimaryBlue,
+
+                            modifier = Modifier.size(14.dp)
+
+                        )
+
+                        Spacer(Modifier.width(4.dp))
+
+                        Text(
+
+                            "Statistics ↗",
+
+                            fontSize = 11.sp,
+
+                            fontWeight = FontWeight.Bold,
+
+                            color = PrimaryBlue
+
+                        )
+
+                    }
 
                 }
 
@@ -1359,163 +1323,216 @@ fun QuickActionsRow(
 
 
 @Composable
-
 fun LiveScheduleCard(
-
     slot: StudentScheduleSlot
-
 ) {
+    val relativeTime = remember(slot.start_time, slot.end_time) {
+        getRelativeClassTime(slot.start_time, slot.end_time)
+    }
 
     Card(
-
         colors = CardDefaults.cardColors(containerColor = Color.White),
-
         shape = RoundedCornerShape(14.dp),
-
         border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder),
-
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-
         modifier = Modifier.fillMaxWidth()
-
     ) {
-
         Column(modifier = Modifier.padding(14.dp)) {
-
             // Top timing & room row
-
             Row(
-
                 modifier = Modifier.fillMaxWidth(),
-
                 horizontalArrangement = Arrangement.SpaceBetween,
-
                 verticalAlignment = Alignment.CenterVertically
-
             ) {
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-
-                    Icon(Icons.Outlined.Schedule, contentDescription = null, tint = TextGray, modifier = Modifier.size(14.dp))
-
-                    Spacer(Modifier.width(4.dp))
-
-                    val timeDisp = formatTimeRange12Hour(slot.start_time, slot.end_time)
-
-                    Text(timeDisp, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextDark)
-
-                }
-
-
-
-                val roomDisp = buildString {
-
-                    append(slot.room ?: "TBA")
-
-                    if (!slot.batch_label.isNullOrBlank()) {
-
-                        append(" (")
-
-                        append(slot.batch_label)
-
-                        append(")")
-
-                    }
-
-                }
-
-                Surface(
-
-                    color = Color(0xFFF1F5F9),
-
-                    shape = RoundedCornerShape(6.dp)
-
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
                 ) {
-
-                    Text(
-
-                        roomDisp,
-
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-
-                        fontSize = 10.sp,
-
-                        fontWeight = FontWeight.Bold,
-
-                        color = TextDark
-
+                    Icon(
+                        imageVector = Icons.Outlined.Schedule,
+                        contentDescription = null,
+                        tint = TextGray,
+                        modifier = Modifier.size(14.dp)
                     )
-
+                    Spacer(Modifier.width(4.dp))
+                    val timeDisp = formatTimeRange12Hour(slot.start_time, slot.end_time)
+                    Text(
+                        text = timeDisp,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextDark
+                    )
                 }
 
+                // Room badge (e.g. IL-106 (CLT))
+                val roomDisp = buildString {
+                    append(slot.room ?: "TBA")
+                    if (!slot.batch_label.isNullOrBlank()) {
+                        append(" (")
+                        append(slot.batch_label)
+                        append(")")
+                    }
+                }
+                Surface(
+                    color = Color(0xFFF1F5F9),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = roomDisp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextDark
+                    )
+                }
             }
-
-
 
             Spacer(Modifier.height(8.dp))
 
-
-
             // Subject name & code
-
             Text(
-
-                "${slot.subject_code}: ${slot.subject_name}",
-
+                text = "${slot.subject_code}: ${slot.subject_name}",
                 fontWeight = FontWeight.Bold,
-
                 fontSize = 14.sp,
-
                 color = TextDark
-
             )
 
-
-
-            // Faculty
-
+            // Bottom row: Faculty on left, Relative Countdown on right (no bg chip)
             val teacher = slot.teacher_name ?: "Faculty"
-
             Row(
-
-                verticalAlignment = Alignment.CenterVertically,
-
-                modifier = Modifier.padding(top = 4.dp)
-
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Person,
+                        contentDescription = null,
+                        tint = TextGray,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = teacher,
+                        fontSize = 11.sp,
+                        color = TextGray
+                    )
+                }
 
-                Icon(Icons.Outlined.Person, contentDescription = null, tint = TextGray, modifier = Modifier.size(12.dp))
-
-                Spacer(Modifier.width(4.dp))
-
-                Text(teacher, fontSize = 11.sp, color = TextGray)
-
+                // Relative countdown text at bottom-right corner without background chip
+                if (relativeTime != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (relativeTime.isOngoing) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .background(relativeTime.textColor, CircleShape)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(
+                            text = relativeTime.label,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = relativeTime.textColor
+                        )
+                    }
+                }
             }
-
         }
-
     }
-
 }
 
+data class RelativeClassTime(
+    val label: String,
+    val textColor: Color,
+    val bgColor: Color,
+    val borderColor: Color,
+    val isOngoing: Boolean = false
+)
 
+fun getRelativeClassTime(startTimeStr: String?, endTimeStr: String?): RelativeClassTime? {
+    val startMin = parseTimeToMinutes(startTimeStr)
+    val endMin = parseTimeToMinutes(endTimeStr)
+    if (startMin <= 0) return null
+
+    val now = java.time.LocalTime.now()
+    val nowMin = now.hour * 60 + now.minute
+
+    val effectiveEnd = if (endMin > startMin) endMin else startMin + 60
+
+    return when {
+        nowMin in startMin..effectiveEnd -> {
+            RelativeClassTime(
+                label = "Ongoing",
+                textColor = Color(0xFF059669),
+                bgColor = Color(0xFFECFDF5),
+                borderColor = Color(0xFFA7F3D0),
+                isOngoing = true
+            )
+        }
+        nowMin < startMin -> {
+            val diff = startMin - nowMin
+            val text = when {
+                diff < 60 -> "in ${diff} mins"
+                diff % 60 == 0 -> {
+                    val h = diff / 60
+                    if (h == 1) "in 1 hr" else "in $h hrs"
+                }
+                else -> {
+                    val h = diff / 60
+                    val m = diff % 60
+                    "in ${h}h ${m}m"
+                }
+            }
+            if (diff <= 30) {
+                RelativeClassTime(
+                    label = text,
+                    textColor = Color(0xFFD97706),
+                    bgColor = Color(0xFFFFFBEB),
+                    borderColor = Color(0xFFFDE68A)
+                )
+            } else {
+                RelativeClassTime(
+                    label = text,
+                    textColor = PrimaryBlue,
+                    bgColor = Color(0xFFEFF6FF),
+                    borderColor = Color(0xFFBFDBFE)
+                )
+            }
+        }
+        else -> {
+            RelativeClassTime(
+                label = "Completed",
+                textColor = TextGray,
+                bgColor = Color(0xFFF8FAFC),
+                borderColor = CardBorder
+            )
+        }
+    }
+}
 
 fun parseTimeToMinutes(timeStr: String?): Int {
-
     if (timeStr.isNullOrBlank()) return 0
-
     return try {
-
-        val parts = timeStr.trim().split(":")
-
-        val h = parts.getOrNull(0)?.toIntOrNull() ?: 0
-
+        val clean = timeStr.trim().uppercase()
+        val isPm = clean.contains("PM")
+        val isAm = clean.contains("AM")
+        val stripped = clean.replace("AM", "").replace("PM", "").trim()
+        val parts = stripped.split(":")
+        var h = parts.getOrNull(0)?.toIntOrNull() ?: 0
         val m = parts.getOrNull(1)?.take(2)?.toIntOrNull() ?: 0
-
+        if (isPm && h < 12) h += 12
+        if (isAm && h == 12) h = 0
         h * 60 + m
-
     } catch (_: Exception) { 0 }
-
 }
 
 
@@ -1598,25 +1615,7 @@ fun formatTimeRange12Hour(startTime: String?, endTime: String?): String {
 
 fun StudentDashboardScreenPreview() {
 
-    val todayDay = when (Calendar.getInstance().get(Calendar.DAY_OF_WEEK)) {
-
-        Calendar.MONDAY -> "MON"
-
-        Calendar.TUESDAY -> "TUE"
-
-        Calendar.WEDNESDAY -> "WED"
-
-        Calendar.THURSDAY -> "THU"
-
-        Calendar.FRIDAY -> "FRI"
-
-        Calendar.SATURDAY -> "SAT"
-
-        Calendar.SUNDAY -> "SUN"
-
-        else -> "MON"
-
-    }
+    val todayDay = AppDateProvider.todayDayOfWeek.take(3).uppercase()
 
 
 

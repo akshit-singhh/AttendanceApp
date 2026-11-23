@@ -27,6 +27,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.akshit.attendance.data.model.SubjectAttendanceHistory
+import com.akshit.attendance.data.offline.OfflineAttendanceManager
+import com.akshit.attendance.data.offline.StudentCacheManager
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -44,8 +46,8 @@ fun StudentSubjectsScreen(
     var filterMode by remember { mutableStateOf("ALL") } // ALL, ATTENTION, ON_TRACK
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val pullToRefreshState = rememberPullToRefreshState()
-    if (pullToRefreshState.isRefreshing) {
-        LaunchedEffect(true) {
+    LaunchedEffect(pullToRefreshState.isRefreshing) {
+        if (pullToRefreshState.isRefreshing) {
             viewModel.refreshAll()
         }
     }
@@ -54,7 +56,7 @@ fun StudentSubjectsScreen(
             pullToRefreshState.endRefresh()
         }
     }
-    val showSkeleton = isRefreshing || pullToRefreshState.isRefreshing || dashboardState is DashboardUiState.Loading
+    val showSkeleton = dashboardState is DashboardUiState.Loading
 
     Scaffold(
         containerColor = SurfaceBg,
@@ -62,10 +64,13 @@ fun StudentSubjectsScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text("STUDENT PORTAL", fontSize = 10.sp, color = TextGray, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
-                        Text("Subjects & Workload", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextDark)
-                    }
+                    Text(
+                        text = "Subjects & Workload",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = TextDark
+                        )
+                    )
                 },
                 actions = {
                     IconButton(onClick = { viewModel.refreshAll() }) {
@@ -112,13 +117,14 @@ fun StudentSubjectsScreen(
             }
             is DashboardUiState.Loaded -> {
                 val allSubjects = state.data.subjects
-                val needsAttentionCount = allSubjects.count { it.periods_held > 0 && it.percentage < 75.0 }
-                val onTrackCount = allSubjects.count { it.periods_held > 0 && it.percentage >= 75.0 }
+                val trackedSubjects = allSubjects.filter { it.requires_attendance }
+                val needsAttentionCount = trackedSubjects.count { it.periods_held > 0 && it.percentage < 75.0 }
+                val onTrackCount = trackedSubjects.count { it.periods_held > 0 && it.percentage >= 75.0 }
 
                 val displayedSubjects = when (filterMode) {
-                    "ATTENTION" -> allSubjects.filter { it.periods_held > 0 && it.percentage < 75.0 }
-                    "ON_TRACK" -> allSubjects.filter { it.periods_held > 0 && it.percentage >= 75.0 }
-                    else -> allSubjects
+                    "ATTENTION" -> trackedSubjects.filter { it.periods_held > 0 && it.percentage < 75.0 }
+                    "ON_TRACK" -> trackedSubjects.filter { it.periods_held > 0 && it.percentage >= 75.0 }
+                    else -> allSubjects.sortedBy { !it.requires_attendance }
                 }
 
                 LazyColumn(
@@ -251,7 +257,10 @@ fun SubjectCardItem(
                         fontSize = 14.sp,
                         maxLines = 1
                     )
-                    val subtitleText = if (subject.periods_held == 0) {
+                    val isExempt = !subject.requires_attendance
+                    val subtitleText = if (isExempt) {
+                        "Faculty: ${subject.teacher_name} • Exempt from 75% Criteria"
+                    } else if (subject.periods_held == 0) {
                         "Faculty: ${subject.teacher_name} • Not Started"
                     } else {
                         "${subject.periods_attended} of ${subject.periods_held} attended • ${subject.teacher_name}"
@@ -266,8 +275,10 @@ fun SubjectCardItem(
 
                 Spacer(Modifier.width(8.dp))
 
-                val pctText = if (subject.periods_held == 0) "—" else "${String.format(Locale.ENGLISH, "%.1f", subject.percentage)}%"
+                val isExempt = !subject.requires_attendance
+                val pctText = if (isExempt) "Exempt" else if (subject.periods_held == 0) "—" else "${String.format(Locale.ENGLISH, "%.1f", subject.percentage)}%"
                 val pctColor = when {
+                    isExempt -> Color(0xFF92400E)
                     subject.periods_held == 0 -> TextGray
                     subject.percentage >= 75.0 -> PrimaryGreen
                     else -> AlertRed
@@ -275,53 +286,75 @@ fun SubjectCardItem(
                 Text(
                     pctText,
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 16.sp,
+                    fontSize = if (isExempt) 13.sp else 16.sp,
                     color = pctColor
                 )
             }
 
-            Spacer(Modifier.height(12.dp))
+            if (subject.requires_attendance) {
+                Spacer(Modifier.height(12.dp))
 
-            // Progress Bar with 75% Target Notch
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFFE2E8F0))
-            ) {
-                val progressFraction = if (subject.periods_held == 0) 0f else (subject.percentage / 100.0).toFloat().coerceIn(0f, 1f)
-                val barColor = if (subject.percentage >= 75.0) PrimaryGreen else AlertRed
-
-                if (progressFraction > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(progressFraction)
-                            .fillMaxHeight()
-                            .background(barColor)
-                    )
-                }
-
-                // 75% notch mark
+                // Progress Bar with 75% Target Notch
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(0.75f)
-                        .fillMaxHeight()
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFFE2E8F0))
                 ) {
+                    val progressFraction = if (subject.periods_held == 0) 0f else (subject.percentage / 100.0).toFloat().coerceIn(0f, 1f)
+                    val barColor = if (subject.percentage >= 75.0) PrimaryGreen else AlertRed
+
+                    if (progressFraction > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progressFraction)
+                                .fillMaxHeight()
+                                .background(barColor)
+                        )
+                    }
+
+                    // 75% notch mark
                     Box(
                         modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .width(2.dp)
+                            .fillMaxWidth(0.75f)
                             .fillMaxHeight()
-                            .background(Color.White)
-                    )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .width(2.dp)
+                                .fillMaxHeight()
+                                .background(Color.White)
+                        )
+                    }
                 }
             }
 
             Spacer(Modifier.height(12.dp))
 
             // Dynamic Bunk Advice Badge
-            if (subject.periods_held == 0) {
+            if (!subject.requires_attendance) {
+                Surface(
+                    color = Color(0xFFFEF3C7),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = Color(0xFF92400E), modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Excluded from 75% criteria",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF92400E)
+                        )
+                    }
+                }
+            } else if (subject.periods_held == 0) {
                 Surface(
                     color = Color(0xFFF1F5F9),
                     shape = RoundedCornerShape(8.dp),

@@ -18,10 +18,10 @@ object AppDateProvider {
      * Set to true while testing with demo semester dataset.
      * Set to false for live institutional deployment.
      */
-    var isDemoMode: Boolean = true
+    var isDemoMode: Boolean = false
 
     /** Active fallback date for demo semester classes */
-    val DemoDate: LocalDate = LocalDate.of(2026, 11, 12)
+    val DemoDate: LocalDate = LocalDate.of(2026, 11, 19)
 
     val today: LocalDate
         get() = if (isDemoMode) DemoDate else LocalDate.now()

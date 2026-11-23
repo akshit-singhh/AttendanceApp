@@ -337,7 +337,7 @@ fun StudentCalendarScreen(
                         val attCount = dayClasses.count { it.status == "PRESENT" }
                         val misCount = dayClasses.count { it.status == "ABSENT" }
                         val schedCount = dayClasses.count { it.status == "SCHEDULED" }
-                        val postpCount = dayClasses.count { it.status == "POSTPONED" }
+                        val postpCount = dayClasses.count { it.status == "POSTPONED" || it.status == "CANCELLED" }
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -442,6 +442,7 @@ private fun DayClassScheduleCard(item: CalendarClassItem) {
     val isPresent = item.status == "PRESENT"
     val isAbsent = item.status == "ABSENT"
     val isScheduled = item.status == "SCHEDULED"
+    val isCancelled = item.status == "CANCELLED"
     val isPostponed = item.status == "POSTPONED"
 
     Surface(
@@ -453,54 +454,27 @@ private fun DayClassScheduleCard(item: CalendarClassItem) {
         Column(
             modifier = Modifier.padding(12.dp).fillMaxWidth()
         ) {
-            // Top row: Time & Room on left, Status Pill on right
+            // Top row: Time on left, Status Pill on right
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.weight(1f, fill = false),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Outlined.Schedule,
                         contentDescription = null,
                         tint = TextGray,
                         modifier = Modifier.size(13.dp)
                     )
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(5.dp))
                     Text(
                         formatTimeRange12Hour(item.start_time, item.end_time),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextDark
                     )
-                    Spacer(Modifier.width(6.dp))
-                    Surface(
-                        color = Color.White,
-                        shape = RoundedCornerShape(4.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1))
-                    ) {
-                        val roomDisp = buildString {
-                            append(item.room.ifBlank { "TBA" })
-                            if (!item.batch_label.isNullOrBlank()) {
-                                append(" (")
-                                append(item.batch_label)
-                                append(")")
-                            }
-                        }
-                        Text(
-                            roomDisp,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextDark,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                        )
-                    }
                 }
-
-                Spacer(Modifier.width(8.dp))
 
                 // Attendance Status Pill
                 when {
@@ -571,6 +545,32 @@ private fun DayClassScheduleCard(item: CalendarClassItem) {
                             )
                         }
                     }
+                    isCancelled -> {
+                        Surface(
+                            color = Color(0xFFFEE2E2),
+                            shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFECACA))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = null,
+                                    tint = AlertRed,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(Modifier.width(3.dp))
+                                Text(
+                                    "Cancelled",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AlertRed
+                                )
+                            }
+                        }
+                    }
                     isPostponed -> {
                         Surface(
                             color = Color(0xFFFEF3C7),
@@ -626,22 +626,70 @@ private fun DayClassScheduleCard(item: CalendarClassItem) {
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
 
-            // Faculty name
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Outlined.Person,
-                    contentDescription = null,
-                    tint = TextGray,
-                    modifier = Modifier.size(11.dp)
-                )
-                Spacer(Modifier.width(3.dp))
-                Text(
-                    item.teacher_name.ifBlank { "Faculty" },
-                    fontSize = 11.sp,
-                    color = TextGray
-                )
+            // Bottom row: Faculty name on left, Room / Venue on right
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Outlined.Person,
+                        contentDescription = null,
+                        tint = TextGray,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        item.teacher_name.ifBlank { "Faculty" },
+                        fontSize = 11.5.sp,
+                        color = TextGray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(Modifier.width(8.dp))
+
+                // Room / Venue badge
+                val roomDisp = buildString {
+                    append(item.room.ifBlank { "TBA" })
+                    if (!item.batch_label.isNullOrBlank()) {
+                        append(" (")
+                        append(item.batch_label)
+                        append(")")
+                    }
+                }
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(4.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Outlined.LocationOn,
+                            contentDescription = null,
+                            tint = PrimaryBlue,
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            roomDisp,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextDark,
+                            maxLines = 1
+                        )
+                    }
+                }
             }
         }
     }

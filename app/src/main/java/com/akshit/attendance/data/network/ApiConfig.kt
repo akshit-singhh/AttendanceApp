@@ -1,6 +1,9 @@
 package com.akshit.attendance.data.network
 
+import com.akshit.attendance.BuildConfig
+
 object ApiConfig {
-    // Point this at your running FastAPI instance.
-    const val BASE_URL = "https://laptop-f0uunm9o.taild8f6a1.ts.net/api/v1/"
+    val BASE_URL: String = BuildConfig.API_BASE_URL.let {
+        if (it.endsWith("/")) it else "$it/"
+    }
 }
