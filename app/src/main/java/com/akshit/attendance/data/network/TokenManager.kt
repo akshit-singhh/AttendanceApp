@@ -29,17 +29,53 @@ class TokenManager(private val context: Context) {
         val ACTIVE_ROLE = stringPreferencesKey("active_role")
         val USER_NAME = stringPreferencesKey("user_name")
         val USER_EMAIL = stringPreferencesKey("user_email")
+        val NOTIFY_ON_PRESENT = booleanPreferencesKey("notify_on_present")
+        val NOTIFY_ON_ABSENT = booleanPreferencesKey("notify_on_absent")
+        val NOTIFY_ON_CORRECTION = booleanPreferencesKey("notify_on_correction")
+        val NOTIFY_TEACHER_PENDING_ATTENDANCE = booleanPreferencesKey("notify_teacher_pending_attendance")
+        val NOTIFY_TEACHER_UPCOMING_CLASS = booleanPreferencesKey("notify_teacher_upcoming_class")
+        val NOTIFY_TEACHER_LEAVE_REQUESTS = booleanPreferencesKey("notify_teacher_leave_requests")
+        val NOTIFY_TEACHER_ANNOUNCEMENTS = booleanPreferencesKey("notify_teacher_announcements")
     }
 
     val accessTokenFlow: Flow<String?> = context.dataStore.data.map { decryptToken(it[Keys.ACCESS]) }
     val activeRoleFlow: Flow<String?> = context.dataStore.data.map { it[Keys.ACTIVE_ROLE] }
     val userNameFlow: Flow<String?> = context.dataStore.data.map { it[Keys.USER_NAME] }
     val userEmailFlow: Flow<String?> = context.dataStore.data.map { it[Keys.USER_EMAIL] }
+    val notifyOnPresentFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.NOTIFY_ON_PRESENT] ?: true }
+    val notifyOnAbsentFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.NOTIFY_ON_ABSENT] ?: true }
+    val notifyOnCorrectionFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.NOTIFY_ON_CORRECTION] ?: true }
+    val notifyTeacherPendingAttendanceFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.NOTIFY_TEACHER_PENDING_ATTENDANCE] ?: true }
+    val notifyTeacherUpcomingClassFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.NOTIFY_TEACHER_UPCOMING_CLASS] ?: true }
+    val notifyTeacherLeaveRequestsFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.NOTIFY_TEACHER_LEAVE_REQUESTS] ?: true }
+    val notifyTeacherAnnouncementsFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.NOTIFY_TEACHER_ANNOUNCEMENTS] ?: true }
 
     private val _sessionExpiredFlow = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val sessionExpiredFlow: kotlinx.coroutines.flow.SharedFlow<Unit> = _sessionExpiredFlow
 
+    @Volatile
+    private var isLoggingOut = false
+
+    @Volatile
+    private var lastSessionExpiredTime = 0L
+
+    fun markLoggingOut() {
+        isLoggingOut = true
+    }
+
+    fun resetLoggingOut() {
+        isLoggingOut = false
+    }
+
+    fun isLoggingOut(): Boolean = isLoggingOut
+
     fun notifySessionExpired() {
+        if (isLoggingOut) return
+        val now = System.currentTimeMillis()
+        if (now - lastSessionExpiredTime < 4000L) {
+            return
+        }
+        lastSessionExpiredTime = now
         _sessionExpiredFlow.tryEmit(Unit)
     }
 
@@ -48,6 +84,41 @@ class TokenManager(private val context: Context) {
     suspend fun activeRole(): String? = activeRoleFlow.first()
     suspend fun userName(): String? = userNameFlow.first()
     suspend fun userEmail(): String? = userEmailFlow.first()
+    suspend fun isNotifyOnPresentEnabled(): Boolean = notifyOnPresentFlow.first()
+    suspend fun isNotifyOnAbsentEnabled(): Boolean = notifyOnAbsentFlow.first()
+    suspend fun isNotifyOnCorrectionEnabled(): Boolean = notifyOnCorrectionFlow.first()
+    suspend fun isNotifyTeacherPendingAttendanceEnabled(): Boolean = notifyTeacherPendingAttendanceFlow.first()
+    suspend fun isNotifyTeacherUpcomingClassEnabled(): Boolean = notifyTeacherUpcomingClassFlow.first()
+    suspend fun isNotifyTeacherLeaveRequestsEnabled(): Boolean = notifyTeacherLeaveRequestsFlow.first()
+    suspend fun isNotifyTeacherAnnouncementsEnabled(): Boolean = notifyTeacherAnnouncementsFlow.first()
+
+    suspend fun setNotifyOnPresent(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.NOTIFY_ON_PRESENT] = enabled }
+    }
+
+    suspend fun setNotifyOnAbsent(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.NOTIFY_ON_ABSENT] = enabled }
+    }
+
+    suspend fun setNotifyOnCorrection(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.NOTIFY_ON_CORRECTION] = enabled }
+    }
+
+    suspend fun setNotifyTeacherPendingAttendance(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.NOTIFY_TEACHER_PENDING_ATTENDANCE] = enabled }
+    }
+
+    suspend fun setNotifyTeacherUpcomingClass(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.NOTIFY_TEACHER_UPCOMING_CLASS] = enabled }
+    }
+
+    suspend fun setNotifyTeacherLeaveRequests(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.NOTIFY_TEACHER_LEAVE_REQUESTS] = enabled }
+    }
+
+    suspend fun setNotifyTeacherAnnouncements(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.NOTIFY_TEACHER_ANNOUNCEMENTS] = enabled }
+    }
 
     suspend fun updateTokens(access: String, refresh: String) {
         context.dataStore.edit { prefs ->
