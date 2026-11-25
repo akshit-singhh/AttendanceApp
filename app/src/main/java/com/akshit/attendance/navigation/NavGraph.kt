@@ -199,6 +199,12 @@ fun AppNavGraph(app: AttendanceApp, startDestination: String = Routes.LOGIN) {
                     authViewModel.resetState()
                     routeAfterAuth(response)
                 },
+                onBackToLogin = {
+                    authViewModel.resetState()
+                    navController.navigate(Routes.LOGIN) {
+                        popUpTo(Routes.CREATE_PASSWORD) { inclusive = true }
+                    }
+                }
             )
         }
 
@@ -225,7 +231,8 @@ fun AppNavGraph(app: AttendanceApp, startDestination: String = Routes.LOGIN) {
                 onOpenProfile = { navController.navigate(Routes.PROFILE) },
                 onSelectSubject = { code -> navController.navigate(Routes.subjectDetail(code)) },
                 onNavigateToStatistics = { navController.navigate(Routes.STUDENT_STATISTICS) },
-                onNavigateToNotifications = { navController.navigate(Routes.STUDENT_NOTIFICATIONS) }
+                onNavigateToNotifications = { navController.navigate(Routes.STUDENT_NOTIFICATIONS) },
+                onNavigateToDocuments = { navController.navigate(Routes.UNIVERSITY_DOCS) }
             )
         }
 
@@ -252,6 +259,11 @@ fun AppNavGraph(app: AttendanceApp, startDestination: String = Routes.LOGIN) {
                 viewModel = studentViewModel,
                 onNavigateBack = { navController.popBackStack() },
                 onSelectSubject = { code -> navController.navigate(Routes.subjectDetail(code)) }
+            )
+        }
+        composable(Routes.UNIVERSITY_DOCS) {
+            UniversityDocumentsScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable(Routes.STUDENT_STATISTICS) {
@@ -326,7 +338,7 @@ fun AppNavGraph(app: AttendanceApp, startDestination: String = Routes.LOGIN) {
                 onOpenProfile = { navController.navigate(Routes.PROFILE) },
                 onNavigateToNotifications = { navController.navigate(Routes.TEACHER_NOTIFICATIONS) },
                 onSubmitted = {
-                    teacherViewModel.loadSchedule(isRefresh = true)
+                    teacherViewModel.loadSchedule(isRefresh = false)
                     teacherViewModel.loadPendingClasses()
                     navController.popBackStack()
                 }
@@ -356,6 +368,7 @@ fun AppNavGraph(app: AttendanceApp, startDestination: String = Routes.LOGIN) {
                 viewModel = profileVm,
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToNotificationSettings = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
+                onNavigateToDocuments = { navController.navigate(Routes.UNIVERSITY_DOCS) },
                 onLogout = performLogout,
                 pendingAttendanceCount = queuedAttendanceCount
             )

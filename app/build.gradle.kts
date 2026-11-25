@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -6,13 +8,25 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+val localProps = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+val localDebugUrl: String? = localProps.getProperty("ATTENDANCE_API_BASE_URL")
+val localReleaseUrl: String? = localProps.getProperty("RELEASE_API_BASE_URL")
 
 val debugApiBaseUrl = providers.gradleProperty("ATTENDANCE_API_BASE_URL")
     .orElse(providers.environmentVariable("ATTENDANCE_API_BASE_URL"))
-    .orElse("https://laptop-f0uunm9o.taild8f6a1.ts.net/api/v1/")
+    .let { if (!localDebugUrl.isNullOrBlank()) it.orElse(localDebugUrl) else it }
+    .orElse("https://api.example.com/api/v1/")
     .get()
-val releaseApiBaseUrl = providers.gradleProperty("RELEASE_API_BASE_URL")
+
+val releaseApiBaseUrl: String? = providers.gradleProperty("RELEASE_API_BASE_URL")
     .orElse(providers.environmentVariable("RELEASE_API_BASE_URL"))
+    .let { if (!localReleaseUrl.isNullOrBlank()) it.orElse(localReleaseUrl) else it }
     .orNull
 val releaseKeystorePath = providers.environmentVariable("RELEASE_KEYSTORE_PATH").orNull
 val releaseKeystorePassword = providers.environmentVariable("RELEASE_KEYSTORE_PASSWORD").orNull
@@ -51,7 +65,8 @@ android {
 
     buildTypes {
         release {
-            buildConfigField("String", "API_BASE_URL", "\"${releaseApiBaseUrl?.let { normalizedBaseUrl(it) } ?: ""}\"")
+            val releaseUrlValue = if (!releaseApiBaseUrl.isNullOrBlank()) normalizedBaseUrl(releaseApiBaseUrl) else normalizedBaseUrl(debugApiBaseUrl)
+            buildConfigField("String", "API_BASE_URL", "\"$releaseUrlValue\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

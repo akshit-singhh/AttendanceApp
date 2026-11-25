@@ -24,7 +24,8 @@ private class AuthInterceptor(private val tokenManager: TokenManager) : Intercep
         if (path.contains("/auth/login") ||
             path.contains("/auth/refresh") ||
             path.contains("/auth/forgot-password") ||
-            path.contains("/auth/reset-password")
+            path.contains("/auth/reset-password") ||
+            path.contains("/auth/logout")
         ) {
             return chain.proceed(originalRequest)
         }
@@ -152,7 +153,10 @@ object RetrofitClient {
                 com.akshit.attendance.data.offline.OfflineAttendanceManager.markOnline()
                 response
             } catch (e: Exception) {
-                if (e is java.io.IOException) {
+                val isCanceled = chain.call().isCanceled() ||
+                    e.message?.contains("Canceled", ignoreCase = true) == true ||
+                    (e is java.io.InterruptedIOException && e.message?.contains("timeout", ignoreCase = true) != true)
+                if (e is java.io.IOException && !isCanceled) {
                     com.akshit.attendance.data.offline.OfflineAttendanceManager.markOffline()
                 }
                 throw e

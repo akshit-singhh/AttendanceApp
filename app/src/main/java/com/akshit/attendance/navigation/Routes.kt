@@ -17,6 +17,7 @@ object Routes {
     const val STUDENT_LEAVES = "student_leaves"
     const val STUDENT_TIMETABLE = "student_timetable"
     const val STUDENT_NOTIFICATIONS = "student_notifications"
+    const val UNIVERSITY_DOCS = "university_docs"
 
     const val TEACHER_CLASSES = "teacher_classes"
     const val TEACHER_ROLL_CALL = "teacher_roll_call/{courseOfferingId}?sessionDate={sessionDate}&batchLabel={batchLabel}"

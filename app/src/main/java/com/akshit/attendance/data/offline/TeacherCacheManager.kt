@@ -9,6 +9,8 @@ import com.akshit.attendance.data.model.StudentRosterResponse
 import com.akshit.attendance.data.model.TeacherTimetableResponse
 import com.akshit.attendance.data.model.UserProfileResponse
 import com.akshit.attendance.util.AppDateProvider
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,6 +48,8 @@ object TeacherCacheManager {
     private const val PROFILE_FILE = "teacher_profile_cache.json"
     private const val LEGACY_PROFILE_FILE = "user_profile_cache.json"
     private const val SUBMITTED_CLASSES_FILE = "teacher_submitted_classes.json"
+    private const val POSTPONED_CLASSES_FILE = "teacher_postponed_classes.json"
+    private const val CANCELLED_CLASSES_FILE = "teacher_cancelled_classes.json"
 
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -53,8 +57,43 @@ object TeacherCacheManager {
     @Volatile
     private var appContext: Context? = null
 
+    private val _submittedClasses = MutableStateFlow<Set<String>>(emptySet())
+    val submittedClasses: StateFlow<Set<String>> = _submittedClasses
+
+    private val _postponedClasses = MutableStateFlow<Set<String>>(emptySet())
+    val postponedClasses: StateFlow<Set<String>> = _postponedClasses
+
+    private val _cancelledClasses = MutableStateFlow<Set<String>>(emptySet())
+    val cancelledClasses: StateFlow<Set<String>> = _cancelledClasses
+
     fun init(context: Context) {
         appContext = context.applicationContext
+        loadInitialSubmittedClasses()
+    }
+
+    private fun loadInitialSubmittedClasses() {
+        val ctx = appContext ?: return
+        try {
+            val file = File(ctx.filesDir, SUBMITTED_CLASSES_FILE)
+            if (file.exists()) {
+                val list = json.decodeFromString<List<String>>(file.readText())
+                _submittedClasses.value = list.toSet()
+            }
+        } catch (_: Exception) {}
+        try {
+            val pFile = File(ctx.filesDir, POSTPONED_CLASSES_FILE)
+            if (pFile.exists()) {
+                val pList = json.decodeFromString<List<String>>(pFile.readText())
+                _postponedClasses.value = pList.toSet()
+            }
+        } catch (_: Exception) {}
+        try {
+            val cFile = File(ctx.filesDir, CANCELLED_CLASSES_FILE)
+            if (cFile.exists()) {
+                val cList = json.decodeFromString<List<String>>(cFile.readText())
+                _cancelledClasses.value = cList.toSet()
+            }
+        } catch (_: Exception) {}
     }
 
     // ─── Schedule Cache ──────────────────────────────────────────────────────
@@ -324,9 +363,113 @@ object TeacherCacheManager {
                 file.writeText(json.encodeToString(current.toList()))
                 Log.d(TAG, "Recorded submitted class key: $key")
             }
+            _submittedClasses.value = current.toSet()
         } catch (e: Exception) {
             Log.e(TAG, "Error recording submitted class: $key", e)
         }
+    }
+
+    /**
+     * Checks if a specific course offering on a given date has already had attendance submitted.
+     */
+    fun isClassSubmitted(courseOfferingId: Int, date: String): Boolean {
+        val key = "$courseOfferingId:$date"
+        if (_submittedClasses.value.contains(key)) return true
+        val ctx = appContext ?: return false
+        return try {
+            val file = File(ctx.filesDir, SUBMITTED_CLASSES_FILE)
+            if (file.exists()) {
+                val list = json.decodeFromString<List<String>>(file.readText())
+                list.contains(key)
+            } else {
+                false
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun recordPostponedClass(courseOfferingId: Int, date: String) {
+        val ctx = appContext ?: return
+        val key = "$courseOfferingId:$date"
+        try {
+            val file = File(ctx.filesDir, POSTPONED_CLASSES_FILE)
+            val current = if (file.exists()) {
+                try {
+                    json.decodeFromString<List<String>>(file.readText()).toMutableSet()
+                } catch (_: Exception) {
+                    mutableSetOf()
+                }
+            } else {
+                mutableSetOf()
+            }
+            if (current.add(key)) {
+                file.writeText(json.encodeToString(current.toList()))
+            }
+            _postponedClasses.value = current.toSet()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error recording postponed class: $key", e)
+        }
+    }
+
+    fun removePostponedClass(courseOfferingId: Int, date: String) {
+        val ctx = appContext ?: return
+        val key = "$courseOfferingId:$date"
+        try {
+            val file = File(ctx.filesDir, POSTPONED_CLASSES_FILE)
+            val current = if (file.exists()) {
+                try {
+                    json.decodeFromString<List<String>>(file.readText()).toMutableSet()
+                } catch (_: Exception) {
+                    mutableSetOf()
+                }
+            } else {
+                mutableSetOf()
+            }
+            if (current.remove(key)) {
+                file.writeText(json.encodeToString(current.toList()))
+            }
+            _postponedClasses.value = current.toSet()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error removing postponed class: $key", e)
+        }
+    }
+
+    fun isClassPostponed(courseOfferingId: Int, date: String): Boolean {
+        val key = "$courseOfferingId:$date"
+        return _postponedClasses.value.contains(key)
+    }
+
+    fun recordCancelledClass(courseOfferingId: Int, date: String) {
+        val ctx = appContext ?: return
+        val key = "$courseOfferingId:$date"
+        try {
+            val file = File(ctx.filesDir, CANCELLED_CLASSES_FILE)
+            val current = if (file.exists()) {
+                try {
+                    json.decodeFromString<List<String>>(file.readText()).toMutableSet()
+                } catch (_: Exception) {
+                    mutableSetOf()
+                }
+            } else {
+                mutableSetOf()
+            }
+            if (current.add(key)) {
+                file.writeText(json.encodeToString(current.toList()))
+            }
+            _cancelledClasses.value = current.toSet()
+            // If it was previously postponed, remove from postponed
+            removePostponedClass(courseOfferingId, date)
+            // Cancelled classes should be excluded from pending
+            recordSubmittedClass(courseOfferingId, date)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error recording cancelled class: $key", e)
+        }
+    }
+
+    fun isClassCancelled(courseOfferingId: Int, date: String): Boolean {
+        val key = "$courseOfferingId:$date"
+        return _cancelledClasses.value.contains(key)
     }
 
     /**
@@ -362,6 +505,30 @@ object TeacherCacheManager {
         } catch (_: Exception) {}
 
         return result
+    }
+
+    /**
+     * Attempts to resolve human-readable subject & section info for a course offering ID
+     * from the cached schedule or cached weekly timetable.
+     */
+    fun resolveCourseInfo(courseOfferingId: Int): CourseScheduleResponse? {
+        val fromSchedule = loadSchedule().firstOrNull { it.course_offering_id == courseOfferingId }
+        if (fromSchedule != null) return fromSchedule
+        val fromHistory = loadHistory()?.firstOrNull { it.course_offering_id == courseOfferingId }
+        if (fromHistory != null) {
+            return CourseScheduleResponse(
+                course_offering_id = fromHistory.course_offering_id,
+                subject_name = fromHistory.subject_name,
+                subject_code = "",
+                section_name = fromHistory.section_name,
+                start_time = "",
+                end_time = "",
+                room = null,
+                day_of_week = "MON",
+                duration_periods = 1
+            )
+        }
+        return null
     }
 
     /**
