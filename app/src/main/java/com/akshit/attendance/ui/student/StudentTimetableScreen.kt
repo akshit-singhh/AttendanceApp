@@ -20,6 +20,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -32,6 +34,7 @@ import com.akshit.attendance.data.model.TeachingWorkloadItem
 import com.akshit.attendance.data.model.TimetableSlotItem
 import com.akshit.attendance.ui.components.AppTopBar
 import com.akshit.attendance.ui.components.ScheduleCardSkeleton
+import com.akshit.attendance.util.AppDateProvider
 import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.delay
@@ -68,22 +71,13 @@ fun StudentTimetableScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Outlined.School,
-                            contentDescription = "App Logo",
-                            modifier = Modifier.size(28.dp),
-                            tint = PrimaryBlue
+                    Text(
+                        text = "My Timetable",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = TextDark
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "My Timetable",
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = TextDark
-                            )
-                        )
-                    }
+                    )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = SurfaceBg)
             )
@@ -158,13 +152,13 @@ private fun StudentTimetableContent(
     onRefresh: () -> Unit
 ) {
     var currentTime by remember { mutableStateOf(LocalTime.now()) }
-    var currentDate by remember { mutableStateOf(LocalDate.now()) }
+    var currentDate by remember { mutableStateOf(AppDateProvider.today) }
 
     LaunchedEffect(Unit) {
         while (true) {
             delay(10_000L) // Refresh every 10 seconds for dynamic current period tracking
             currentTime = LocalTime.now()
-            currentDate = LocalDate.now()
+            currentDate = AppDateProvider.today
         }
     }
 
@@ -201,7 +195,7 @@ private fun StudentTimetableContent(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 32.dp),
+        contentPadding = PaddingValues(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // 1. Class Details Card (Department, Class, Section, Semester)
@@ -249,7 +243,7 @@ private fun StudentTimetableContent(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.GridOn, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Weekly Matrix", fontSize = 13.sp)
+                            Text("Weekly", fontSize = 13.sp)
                         }
                     }
                 }
@@ -375,164 +369,109 @@ private fun StudentClassDetailsCard(
     val section = data.subtitle.substringAfter("•", "").trim().ifEmpty {
         profile?.batch_name ?: "CS-IV-A"
     }
-    val className = profile?.program_name?.ifEmpty { null } ?: profile?.batch_name ?: "B.Tech. CSE"
-    val semester = data.semester_info.split("•").firstOrNull()?.trim() ?: "2026-27 Odd Semester"
+    val className = profile?.program_name?.ifEmpty { null } ?: profile?.batch_name ?: "Integrated Btech-Mtech"
+    val titleText = department
+    val subtitleText = "${className} • Section: ${section} • ${school}"
+    val semesterTag = if (data.semester_info.isNotBlank()) data.semester_info.uppercase() else "GBU 2026-27 (ODD SEMESTER) • CLASS TIMETABLE"
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
         shape = RoundedCornerShape(16.dp),
-        color = Color.White,
-        border = BorderStroke(1.dp, CardBorder),
-        shadowElevation = 1.dp
+        color = NavyHeader,
+        shadowElevation = 3.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(18.dp)
         ) {
-            // Top: Department & School header with Semester tag
+            // Badge: GBU 2026-27 (ODD SEMESTER) • STUDENT WEEKLY SCHEDULE
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = Color.White.copy(alpha = 0.15f)
+            ) {
+                Text(
+                    text = semesterTag,
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Student Name & Section
+            Text(
+                text = titleText,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = subtitleText,
+                fontSize = 12.sp,
+                color = Color.White.copy(alpha = 0.75f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Legend & Total Hours/Slots Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    modifier = Modifier.weight(1f, fill = false),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFEEF2FF)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.School,
-                            contentDescription = null,
-                            tint = AccentPurple,
-                            modifier = Modifier.size(20.dp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF60A5FA))
                         )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Lecture", color = Color.White, fontSize = 11.sp)
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = department,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = TextDark,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF34D399))
                         )
-                        Text(
-                            text = school,
-                            fontSize = 11.sp,
-                            color = TextMuted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Lab", color = Color.White, fontSize = 11.sp)
                     }
                 }
 
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFFF1F5F9),
-                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                    color = Color.White.copy(alpha = 0.2f)
                 ) {
+                    val totalDisplay = if (data.total_slots > 0) "${data.total_slots} slots/wk" else "${data.total_hours.toInt()} hrs/wk"
                     Text(
-                        text = semester,
-                        fontSize = 10.sp,
+                        text = "Total: $totalDisplay",
+                        color = Color.White,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextDark,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Class details row: Class, Section, and Total Load
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Class / Program
-                Surface(
-                    modifier = Modifier.weight(1.3f),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFF8FAFC),
-                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Text(
-                            text = "CLASS / PROGRAM",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextMuted,
-                            letterSpacing = 0.5.sp
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = className,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            color = TextDark,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                // Section
-                Surface(
-                    modifier = Modifier.weight(0.9f),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFEFF6FF),
-                    border = BorderStroke(1.dp, Color(0xFFBFDBFE))
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Text(
-                            text = "SECTION",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1E40AF),
-                            letterSpacing = 0.5.sp
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = section,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 13.sp,
-                            color = Color(0xFF1E3A8A)
-                        )
-                    }
-                }
-
-                // Weekly Load
-                Surface(
-                    modifier = Modifier.weight(1.1f),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFECFDF5),
-                    border = BorderStroke(1.dp, Color(0xFFA7F3D0))
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Text(
-                            text = "WEEKLY LOAD",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF065F46),
-                            letterSpacing = 0.5.sp
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "${data.total_slots} Slots (${data.total_hours.toInt()}h)",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            color = Color(0xFF047857)
-                        )
-                    }
                 }
             }
         }
@@ -564,7 +503,10 @@ private fun StudentPeriodSlotCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = if (isNow) YellowBoxBorder else Color.White,
@@ -579,13 +521,13 @@ private fun StudentPeriodSlotCard(
                         )
                     }
                     if (isNow) {
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Surface(
                             shape = RoundedCornerShape(4.dp),
                             color = Color(0xFFFEF08A)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
@@ -594,9 +536,9 @@ private fun StudentPeriodSlotCard(
                                         .clip(CircleShape)
                                         .background(ActiveGreen)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
                                 Text(
-                                    text = "HAPPENING NOW",
+                                    text = "NOW",
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = AccentYellowText
@@ -604,14 +546,18 @@ private fun StudentPeriodSlotCard(
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = formatPeriodTo12Hour(slot.period_time),
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextDark
+                        color = TextDark,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Surface(
                     shape = RoundedCornerShape(6.dp),
@@ -622,6 +568,7 @@ private fun StudentPeriodSlotCard(
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = primaryText,
+                        maxLines = 1,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
@@ -847,35 +794,6 @@ private fun StudentActiveStatusCard(
                 }
             }
         }
-    } else {
-        // Outside scheduled periods
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            shape = RoundedCornerShape(12.dp),
-            color = Color.White,
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-        ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Schedule,
-                    contentDescription = null,
-                    tint = TextMuted,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "College Hours: 08:30 AM – 07:30 PM (Mon–Sat)",
-                    fontSize = 12.sp,
-                    color = TextMuted,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
     }
 }
 
@@ -889,13 +807,17 @@ private fun StudentWeeklyMatrixView(
 
     LaunchedEffect(currentPeriod) {
         if (currentPeriod != null && currentPeriod > 1) {
-            val targetScroll = ((currentPeriod - 2) * 260).coerceAtLeast(0)
+            val targetScroll = ((currentPeriod - 2) * 320).coerceAtLeast(0)
             horizontalScroll.animateScrollTo(targetScroll)
         }
     }
 
     val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
     val periods = (1..11).toList()
+    val headerHeight = 48.dp
+    val rowHeight = 90.dp
+    val periodColWidth = 126.dp
+    val dayColWidth = 56.dp
 
     Surface(
         modifier = Modifier
@@ -905,210 +827,271 @@ private fun StudentWeeklyMatrixView(
         color = Color.White,
         border = BorderStroke(1.dp, Color(0xFFE2E8F0))
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(horizontalScroll)
-                .padding(12.dp)
+                .padding(8.dp)
         ) {
-            // Header Row: DAY | I | II | III ...
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .width(64.dp)
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("DAY", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = TextMuted)
-                }
-
-                periods.forEach { p ->
-                    val timeStr = data.period_definitions[p.toString()] ?: periodFallbackTime(p)
-                    val isNowPeriod = (p == currentPeriod)
-
-                    Column(
-                        modifier = Modifier
-                            .width(110.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isNowPeriod) AccentYellow.copy(alpha = 0.6f) else Color.Transparent)
-                            .padding(horizontal = 4.dp, vertical = 4.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = romanPeriod(p),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = if (isNowPeriod) AccentYellowText else NavyHeader
-                            )
-                            if (isNowPeriod) {
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(2.dp),
-                                    color = YellowBoxBorder
-                                ) {
-                                    Text(
-                                        "NOW",
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                    )
-                                }
-                            }
-                        }
-                        Text(
-                            text = formatPeriodTo12Hour(timeStr),
-                            fontSize = 8.sp,
-                            color = if (isNowPeriod) AccentYellowText else TextMuted
+            // ==========================================
+            // 1. PINNED / LOCKED "DAY" COLUMN (Fixed on Left)
+            // ==========================================
+            Column(
+                modifier = Modifier
+                    .width(dayColWidth)
+                    .drawBehind {
+                        // Subtle vertical separator line on right edge of pinned column
+                        drawLine(
+                            color = Color(0xFFE2E8F0),
+                            start = Offset(size.width, 0f),
+                            end = Offset(size.width, size.height),
+                            strokeWidth = 1.dp.toPx()
                         )
                     }
+            ) {
+                // Fixed Header: "Day"
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(headerHeight),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Day", fontWeight = FontWeight.Bold, fontSize = 11.5.sp, color = TextMuted)
+                }
+
+                HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 1.dp)
+
+                // Fixed Rows: Mon - Sun
+                (1..7).forEach { dayNum ->
+                    val dayName = days[dayNum - 1]
+                    val isToday = dayNum == currentDay
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(rowHeight)
+                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isToday) AccentYellow.copy(alpha = 0.45f) else Color.Transparent)
+                                .padding(vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = dayName,
+                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                color = if (isToday) NavyHeader else TextDark
+                            )
+                            if (isToday) {
+                                Text(
+                                    "Today",
+                                    fontSize = 9.sp,
+                                    color = AccentYellowText,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 0.5.dp)
                 }
             }
 
-            HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 1.dp)
-
-            // Data Rows for each Day
-            (1..7).forEach { dayNum ->
-                val dayName = days[dayNum - 1]
-                val isToday = dayNum == currentDay
-                val slotsForDay = data.slots.filter { it.day == dayNum }
-
+            // ==========================================
+            // 2. HORIZONTALLY SCROLLABLE PERIOD COLUMNS (Periods I - XI)
+            // ==========================================
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(horizontalScroll)
+            ) {
+                // Header Row: I | II | III ...
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
+                    modifier = Modifier.height(headerHeight),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Day column
-                    Column(
-                        modifier = Modifier
-                            .width(64.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (isToday) AccentYellow.copy(alpha = 0.45f) else Color.Transparent)
-                            .padding(vertical = 4.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = dayName,
-                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
-                            fontSize = 12.sp,
-                            color = if (isToday) NavyHeader else TextDark
-                        )
-                        if (isToday) {
+                    periods.forEach { p ->
+                        val timeStr = data.period_definitions[p.toString()] ?: periodFallbackTime(p)
+                        val isNowPeriod = (p == currentPeriod)
+
+                        Column(
+                            modifier = Modifier
+                                .width(periodColWidth)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isNowPeriod) AccentYellow.copy(alpha = 0.5f) else Color.Transparent)
+                                .padding(horizontal = 4.dp, vertical = 3.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = romanPeriod(p),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = if (isNowPeriod) AccentYellowText else NavyHeader
+                                )
+                                if (isNowPeriod) {
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(3.dp),
+                                        color = YellowBoxBorder
+                                    ) {
+                                        Text(
+                                            "NOW",
+                                            fontSize = 7.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(1.dp))
                             Text(
-                                "Today",
-                                fontSize = 9.sp,
-                                color = AccentYellowText,
-                                fontWeight = FontWeight.Bold
+                                text = formatPeriodTimeDisplay(timeStr),
+                                fontSize = 8.5.sp,
+                                fontWeight = if (isNowPeriod) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (isNowPeriod) AccentYellowText else TextMuted,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
+                }
 
-                    // Periods 1 to 11 cells
-                    periods.forEach { p ->
-                        val matchingSlots = slotsForDay.filter { it.period == p }
-                        val isCurrentCell = (dayNum == currentDay && p == currentPeriod)
+                HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 1.dp)
 
-                        Box(
-                            modifier = Modifier
-                                .width(110.dp)
-                                .height(76.dp)
-                                .padding(2.dp)
-                        ) {
-                            if (matchingSlots.isNotEmpty()) {
-                                val matchingSlot = matchingSlots.first()
-                                val isLab = matchingSlots.any { it.activity.equals("Lab", ignoreCase = true) }
-                                val baseBorder = if (isLab) LabBorder else LectureBorder
-                                val borderStroke = if (isCurrentCell) {
-                                    BorderStroke(2.5.dp, YellowBoxBorder)
-                                } else {
-                                    BorderStroke(1.dp, baseBorder)
-                                }
+                // Data Rows for each Day
+                (1..7).forEach { dayNum ->
+                    val slotsForDay = data.slots.filter { it.day == dayNum }
 
-                                Surface(
-                                    modifier = Modifier.fillMaxSize(),
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (isCurrentCell) YellowBoxBg else (if (isLab) LabBg else LectureBg),
-                                    border = borderStroke
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(4.dp),
-                                        verticalArrangement = Arrangement.SpaceBetween
+                    Row(
+                        modifier = Modifier
+                            .height(rowHeight)
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Periods 1 to 11 cells
+                        periods.forEach { p ->
+                            val matchingSlots = slotsForDay.filter { it.period == p }
+                            val isCurrentCell = (dayNum == currentDay && p == currentPeriod)
+
+                            Box(
+                                modifier = Modifier
+                                    .width(periodColWidth)
+                                    .height(78.dp)
+                                    .padding(2.5.dp)
+                            ) {
+                                if (matchingSlots.isNotEmpty()) {
+                                    val matchingSlot = matchingSlots.first()
+                                    val isLab = matchingSlots.any { it.activity.equals("Lab", ignoreCase = true) }
+                                    val baseBorder = if (isLab) LabBorder else LectureBorder
+                                    val borderStroke = if (isCurrentCell) {
+                                        BorderStroke(2.dp, YellowBoxBorder)
+                                    } else {
+                                        BorderStroke(1.dp, baseBorder)
+                                    }
+
+                                    Surface(
+                                        modifier = Modifier.fillMaxSize(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isCurrentCell) YellowBoxBg else (if (isLab) LabBg else LectureBg),
+                                        border = borderStroke
                                     ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(horizontal = 6.dp, vertical = 5.dp),
+                                            verticalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Text(
-                                                text = matchingSlot.subject_code,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isLab) LabText else LectureText
-                                            )
-                                            Text(
-                                                text = if (isLab) "LAB" else "LEC",
-                                                fontSize = 8.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = if (isLab) LabText else LectureText
-                                            )
-                                        }
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = matchingSlot.subject_code,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isLab) LabText else LectureText,
+                                                    maxLines = 1
+                                                )
+                                                Surface(
+                                                    shape = RoundedCornerShape(3.dp),
+                                                    color = (if (isLab) LabText else LectureText).copy(alpha = 0.12f)
+                                                ) {
+                                                    Text(
+                                                        text = if (isLab) "LAB" else "LEC",
+                                                        fontSize = 7.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isLab) LabText else LectureText,
+                                                        modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp)
+                                                    )
+                                                }
+                                            }
 
-                                        Text(
-                                            text = matchingSlot.subject_name.ifBlank { matchingSlot.subject_code },
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = TextDark,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                            Text(
+                                                text = matchingSlot.subject_name.ifBlank { matchingSlot.subject_code },
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = TextDark,
+                                                maxLines = 2,
+                                                lineHeight = 11.5.sp,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
 
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = matchingSlot.room.ifBlank { "TBA" },
-                                                fontSize = 8.sp,
-                                                color = TextMuted,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                            Text(
-                                                text = matchingSlot.teacher_abbr.ifBlank { matchingSlot.teacher_name.take(3) },
-                                                fontSize = 8.sp,
-                                                color = PrimaryBlue,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = matchingSlot.room.ifBlank { "TBA" },
+                                                    fontSize = 8.sp,
+                                                    color = TextMuted,
+                                                    fontWeight = FontWeight.Medium,
+                                                    maxLines = 1
+                                                )
+                                                Text(
+                                                    text = matchingSlot.teacher_abbr.ifBlank { matchingSlot.teacher_name.take(3) },
+                                                    fontSize = 8.sp,
+                                                    color = PrimaryBlue,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1
+                                                )
+                                            }
                                         }
                                     }
-                                }
-                            } else {
-                                // Empty slot cell
-                                Surface(
-                                    modifier = Modifier.fillMaxSize(),
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (isCurrentCell) Color(0xFFFEF9C3).copy(alpha = 0.5f) else Color(0xFFF8FAFC),
-                                    border = BorderStroke(
-                                        if (isCurrentCell) 2.dp else 1.dp,
-                                        if (isCurrentCell) YellowBoxBorder else Color(0xFFF1F5F9)
-                                    )
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = if (isCurrentCell) "FREE" else "—",
-                                            fontSize = 9.sp,
-                                            color = if (isCurrentCell) AccentYellowText else Color(0xFFCBD5E1),
-                                            fontWeight = if (isCurrentCell) FontWeight.Bold else FontWeight.Normal
+                                } else {
+                                    // Empty slot cell
+                                    Surface(
+                                        modifier = Modifier.fillMaxSize(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isCurrentCell) Color(0xFFFEF9C3).copy(alpha = 0.5f) else Color(0xFFF8FAFC),
+                                        border = BorderStroke(
+                                            if (isCurrentCell) 1.5.dp else 0.5.dp,
+                                            if (isCurrentCell) YellowBoxBorder else Color(0xFFE2E8F0)
                                         )
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = if (isCurrentCell) "Free" else "—",
+                                                fontSize = 9.sp,
+                                                color = if (isCurrentCell) AccentYellowText else Color(0xFFCBD5E1),
+                                                fontWeight = if (isCurrentCell) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                    HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 0.5.dp)
                 }
             }
         }
@@ -1140,7 +1123,7 @@ private fun StudentCourseWorkloadSection(data: TeacherTimetableResponse) {
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Enrolled Courses & Weekly Load",
+                        text = "Subjects & Load",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         color = TextDark
@@ -1245,23 +1228,44 @@ private fun StudentWorkloadRow(item: TeachingWorkloadItem, teacherName: String) 
         Spacer(modifier = Modifier.width(8.dp))
 
         Column(horizontalAlignment = Alignment.End) {
+            val isProject = item.activity.equals("PROJECT", ignoreCase = true)
+            val isTraining = item.activity.equals("TRAINING", ignoreCase = true)
+
             Surface(
                 shape = RoundedCornerShape(4.dp),
-                color = if (isLab) Color(0xFFD1FAE5) else Color(0xFFDBEAFE)
+                color = when {
+                    isLab -> Color(0xFFD1FAE5)
+                    isProject -> Color(0xFFF3E8FF)
+                    isTraining -> Color(0xFFFEF3C7)
+                    else -> Color(0xFFDBEAFE)
+                }
             ) {
                 Text(
                     text = item.activity.uppercase(),
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (isLab) LabText else LectureText,
+                    color = when {
+                        isLab -> LabText
+                        isProject -> Color(0xFF7E22CE)
+                        isTraining -> Color(0xFFB45309)
+                        else -> LectureText
+                    },
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
 
             Spacer(modifier = Modifier.height(4.dp))
 
+            val hoursText = if (item.hours > 0) {
+                "${item.hours.toInt()} hrs/wk"
+            } else when {
+                isProject -> "Project / Sem"
+                isTraining -> "Training / Sem"
+                else -> "Self-Paced"
+            }
+
             Text(
-                text = "${item.hours.toInt()} hrs/wk",
+                text = hoursText,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextDark
@@ -1298,6 +1302,19 @@ private fun periodFallbackTime(period: Int): String = when (period) {
     10 -> "17:30-18:30"
     11 -> "18:30-19:30"
     else -> ""
+}
+
+private fun formatPeriodTimeDisplay(periodRange: String): String {
+    return try {
+        val parts = periodRange.split("-")
+        if (parts.size == 2) {
+            "${parts[0].trim()} – ${parts[1].trim()}"
+        } else {
+            periodRange
+        }
+    } catch (_: Exception) {
+        periodRange
+    }
 }
 
 private fun formatPeriodTo12Hour(periodRange: String): String {
